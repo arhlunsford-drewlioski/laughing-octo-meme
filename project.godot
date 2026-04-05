@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Goals and Goblins"
 config/description="6v6 fantasy soccer roguelite deck builder. Every player is a goblin."
-run/main_scene="res://scenes/match/match.tscn"
+run/main_scene="res://scenes/draft/draft.tscn"
 config/features=PackedStringArray("4.4", "Mobile")
 
 [autoload]

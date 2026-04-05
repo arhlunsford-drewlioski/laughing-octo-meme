@@ -39,8 +39,8 @@ func _ready() -> void:
 func _setup_match() -> void:
 	GameManager.reset_match()
 
-	# Build rosters and formations
-	var player_roster := GoblinDatabase.player_roster()
+	# Build rosters and formations from drafted roster
+	var player_roster := GameManager.selected_roster
 	var opponent_roster := GoblinDatabase.opponent_roster()
 	GameManager.player_formation = GoblinDatabase.build_default_formation(player_roster)
 	GameManager.opponent_formation = GoblinDatabase.build_default_formation(opponent_roster)
@@ -126,6 +126,7 @@ func _start_halftime() -> void:
 func _on_halftime_continue() -> void:
 	halftime_btn.visible = false
 	formation_display.set_interactive(false)
+	passives.past_halftime = true
 
 	_log("[color=yellow]Formation locked. Second half begins.[/color]")
 	_log("")
@@ -183,7 +184,11 @@ func _on_card_selected(hand_index: int) -> void:
 			var tempo_bonus := passives.tempo_possession_bonus(true)
 			if tempo_bonus > 0:
 				engine.player_possession += tempo_bonus
-			_log("Played [color=green]" + played.card_name + "[/color] (+" + str(played.possession_value) + " possession" + ("+" + str(tempo_bonus) + " passive" if tempo_bonus > 0 else "") + ")")
+			# Mugwort disruption: opponent's Mugwort reduces our Tempo
+			var disruption := passives.tempo_disruption_penalty(true)
+			if disruption > 0:
+				engine.player_possession = maxi(0, engine.player_possession - disruption)
+			_log("Played [color=green]" + played.card_name + "[/color] (+" + str(played.possession_value) + " possession" + ("+" + str(tempo_bonus) + " passive" if tempo_bonus > 0 else "") + ("" if disruption == 0 else " -" + str(disruption) + " disrupted") + ")")
 		CardData.CardType.CHANCE:
 			engine.queue_chance(played, true)
 			player_queued_chances.append(played)
@@ -212,6 +217,10 @@ func _on_end_round_pressed() -> void:
 				var tempo_bonus := passives.tempo_possession_bonus(false)
 				if tempo_bonus > 0:
 					engine.opponent_possession += tempo_bonus
+				# Player's Mugwort disrupts opponent Tempo
+				var disruption := passives.tempo_disruption_penalty(false)
+				if disruption > 0:
+					engine.opponent_possession = maxi(0, engine.opponent_possession - disruption)
 				_log("Opponent played [color=red]" + card.card_name + "[/color]")
 			CardData.CardType.CHANCE:
 				_log("Opponent readied [color=red]" + card.card_name + "[/color]")
@@ -256,6 +265,12 @@ func _on_end_round_pressed() -> void:
 			elif converted:
 				GameManager.add_goal(is_player)
 				_log("[color=yellow]  GOAL! " + side + " - " + card.card_name + " converts! (" + str(roundi(threshold * 100)) + "%)[/color]")
+				# Blix passive: +1 Momentum on goal
+				var goal_mom := passives.goal_momentum_bonus(is_player)
+				if goal_mom > 0:
+					var shift := goal_mom if is_player else -goal_mom
+					GameManager.shift_momentum(shift)
+					_log("[color=cyan]  Blix's frenzy shifts momentum +" + str(goal_mom) + "![/color]")
 			else:
 				_log("  MISS. " + side + " - " + card.card_name + " (" + str(roundi(threshold * 100)) + "%)")
 
@@ -286,10 +301,7 @@ func _end_match() -> void:
 	play_again_btn.visible = true
 
 func _on_play_again_pressed() -> void:
-	play_again_btn.visible = false
-	log_label.clear()
-	_setup_match()
-	_start_match()
+	get_tree().change_scene_to_file("res://scenes/draft/draft.tscn")
 
 # -- UI helpers --
 

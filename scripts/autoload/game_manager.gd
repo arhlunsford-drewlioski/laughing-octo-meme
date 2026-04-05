@@ -26,6 +26,9 @@ var current_phase: Phase = Phase.SETUP
 var player_formation: Formation
 var opponent_formation: Formation
 
+# -- Draft roster (passed from draft screen to match) --
+var selected_roster: Array[GoblinData] = []
+
 # -- Signals --
 signal momentum_changed(new_value: int)
 signal score_changed(player_goals: int, opponent_goals: int)

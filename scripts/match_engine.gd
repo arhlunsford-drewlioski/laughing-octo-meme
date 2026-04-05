@@ -62,7 +62,7 @@ func resolve_chance(card: CardData, momentum: int, is_player: bool) -> Dictionar
 	var passive_bonus: float = 0.0
 	var passive_penalty: float = 0.0
 	if passives:
-		passive_bonus = passives.chance_conversion_bonus(is_player)
+		passive_bonus = passives.chance_conversion_bonus(is_player, card)
 		passive_penalty = passives.chance_conversion_penalty(not is_player)
 
 	var threshold: float = clampf(card.base_conversion + momentum_bonus + zone_bonus + passive_bonus - passive_penalty, 0.05, 0.95)
