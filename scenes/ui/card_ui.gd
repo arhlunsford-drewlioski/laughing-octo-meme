@@ -46,6 +46,11 @@ func _update_display() -> void:
 
 	flavor_label.text = card_data.flavor_text
 
+func play_animation() -> void:
+	var tween := create_tween()
+	tween.tween_property(self, "scale", Vector2(0.8, 0.8), 0.15).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(self, "modulate:a", 0.0, 0.15)
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if card_data and card_data.is_playable():

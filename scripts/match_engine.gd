@@ -2,6 +2,8 @@ class_name MatchEngine
 extends RefCounted
 ## Resolves a single round: Possession comparison, Momentum shift, Chance conversion.
 
+var passives: PassiveSystem
+
 # Round accumulators - reset each round
 var player_possession: int = 0
 var opponent_possession: int = 0
@@ -44,7 +46,7 @@ func resolve_possession() -> int:
 	return 0
 
 func resolve_chance(card: CardData, momentum: int, is_player: bool) -> Dictionary:
-	## Returns { "converted": bool, "roll": float, "threshold": float }
+	## Returns { "converted": bool, "roll": float, "threshold": float, "saved": bool }
 	var momentum_bonus: float
 	if is_player:
 		momentum_bonus = momentum * 0.03
@@ -56,13 +58,29 @@ func resolve_chance(card: CardData, momentum: int, is_player: bool) -> Dictionar
 	var def_zones: Dictionary = GameManager.get_opponent_zones() if is_player else GameManager.get_player_zones()
 	var zone_bonus: float = (atk_zones["attack"] - def_zones["defense"]) * 0.02
 
-	var threshold: float = clampf(card.base_conversion + momentum_bonus + zone_bonus, 0.05, 0.95)
+	# Goblin passive modifiers
+	var passive_bonus: float = 0.0
+	var passive_penalty: float = 0.0
+	if passives:
+		passive_bonus = passives.chance_conversion_bonus(is_player)
+		passive_penalty = passives.chance_conversion_penalty(not is_player)
+
+	var threshold: float = clampf(card.base_conversion + momentum_bonus + zone_bonus + passive_bonus - passive_penalty, 0.05, 0.95)
 	var roll: float = randf()
+	var converted: bool = roll <= threshold
+
+	# Keeper save check - defender's keeper can negate a goal
+	var saved: bool = false
+	if converted and passives:
+		saved = passives.try_keeper_save(not is_player)
+		if saved:
+			converted = false
 
 	return {
-		"converted": roll <= threshold,
+		"converted": converted,
 		"roll": roll,
 		"threshold": threshold,
+		"saved": saved,
 	}
 
 func resolve_all_chances(momentum: int) -> Array[Dictionary]:

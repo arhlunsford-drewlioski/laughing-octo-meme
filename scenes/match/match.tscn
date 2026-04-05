@@ -92,6 +92,12 @@ visible = false
 layout_mode = 2
 text = "CONTINUE"
 
+[node name="PlayAgainBtn" type="Button" parent="MainLayout/StatusRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "PLAY AGAIN"
+
 [node name="LogScroll" type="ScrollContainer" parent="MainLayout"]
 layout_mode = 2
 size_flags_vertical = 3

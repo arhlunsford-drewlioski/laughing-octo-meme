@@ -6,8 +6,10 @@ const PLAYER_COLOR := Color(0.2, 0.6, 1.0)   # Blue
 const OPPONENT_COLOR := Color(1.0, 0.3, 0.2)  # Red
 const NEUTRAL_COLOR := Color(0.3, 0.3, 0.3)   # Gray
 const MARKER_COLOR := Color(1.0, 0.9, 0.2)    # Yellow marker
+const SLIDE_DURATION: float = 0.4
 
 var current_momentum: int = 0
+var display_momentum: float = 0.0  # Animated value for smooth sliding
 
 func _ready() -> void:
 	GameManager.momentum_changed.connect(_on_momentum_changed)
@@ -15,10 +17,17 @@ func _ready() -> void:
 
 func _on_momentum_changed(new_value: int) -> void:
 	current_momentum = new_value
+	var tween := create_tween()
+	tween.tween_property(self, "display_momentum", float(new_value), SLIDE_DURATION).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_callback(queue_redraw)
+	# Redraw every frame during tween
+	tween.set_loops(1)
+	set_process(true)
+
+func _process(_delta: float) -> void:
 	queue_redraw()
 
 func _draw() -> void:
-	var bar_rect := Rect2(Vector2.ZERO, size)
 	var tick_width: float = size.x / TICK_COUNT
 
 	for i in TICK_COUNT:
@@ -35,8 +44,12 @@ func _draw() -> void:
 
 		draw_rect(rect, color)
 
-	# Draw current position marker
-	var marker_index: int = current_momentum + 5  # Convert -5..+5 to 0..10
-	var marker_x: float = marker_index * tick_width + tick_width * 0.5
+	# Draw current position marker (uses animated display_momentum)
+	var marker_pos: float = display_momentum + 5.0  # Convert -5..+5 to 0..10
+	var marker_x: float = marker_pos * tick_width + tick_width * 0.5
 	var marker_rect := Rect2(marker_x - 6, 2, 12, size.y - 4)
 	draw_rect(marker_rect, MARKER_COLOR)
+
+	# Stop processing when animation is done
+	if absf(display_momentum - float(current_momentum)) < 0.01:
+		set_process(false)
