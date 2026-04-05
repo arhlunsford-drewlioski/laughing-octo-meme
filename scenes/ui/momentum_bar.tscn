@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://bxxd2bvfeav17"]
+
+[ext_resource type="Script" uid="uid://bjwnyu8sa4wg" path="res://scenes/ui/momentum_bar.gd" id="1"]
+
+[node name="MomentumBar" type="Control"]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("1")

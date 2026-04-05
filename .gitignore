@@ -1,0 +1,20 @@
+# Godot 4 specific ignores
+.godot/
+
+# Exported builds
+export/
+*.pck
+*.zip
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/

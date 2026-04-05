@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://wnerm8hcpfba"]
+
+[ext_resource type="Script" uid="uid://dht5w0snogvh5" path="res://scenes/ui/zone_display.gd" id="1"]
+
+[node name="ZoneDisplay" type="HBoxContainer"]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("1")
