@@ -1,8 +1,8 @@
-extends HBoxContainer
-## Shows zone ratings for both sides. Styled panels with themed colors.
+extends VBoxContainer
+## Vertical zone rating sidebar. Stacks F / M / D / GK cards on the right side.
 
 const ZONE_NAMES := ["attack", "midfield", "defense", "goal"]
-const ZONE_LABELS := ["ATK", "MID", "DEF", "GK"]
+const ZONE_LABELS := ["F", "M", "D", "GK"]
 
 func _ready() -> void:
 	GameManager.formation_changed.connect(_build_display)
@@ -22,10 +22,10 @@ func _build_display() -> void:
 		var opp_val: int = opponent_zones[zone_name]
 
 		var panel := PanelContainer.new()
-		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		var style := UITheme.make_panel_style(UITheme.BG_PANEL, UITheme.GOLD, 1)
-		style.content_margin_left = 4
-		style.content_margin_right = 4
+		style.content_margin_left = 6
+		style.content_margin_right = 6
 		style.content_margin_top = 4
 		style.content_margin_bottom = 4
 		panel.add_theme_stylebox_override("panel", style)
@@ -33,13 +33,14 @@ func _build_display() -> void:
 
 		var vbox := VBoxContainer.new()
 		vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+		vbox.add_theme_constant_override("separation", 1)
 		panel.add_child(vbox)
 
 		var header := Label.new()
 		header.text = zone_label
 		header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		header.add_theme_color_override("font_color", UITheme.GOLD)
-		header.add_theme_font_size_override("font_size", 12)
+		header.add_theme_font_size_override("font_size", 13)
 		vbox.add_child(header)
 
 		var player_label := Label.new()
@@ -53,7 +54,7 @@ func _build_display() -> void:
 		vs_label.text = "vs"
 		vs_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		vs_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-		vs_label.add_theme_font_size_override("font_size", 10)
+		vs_label.add_theme_font_size_override("font_size", 9)
 		vbox.add_child(vs_label)
 
 		var opp_label := Label.new()

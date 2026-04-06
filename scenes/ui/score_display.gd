@@ -19,7 +19,7 @@ func _update_all() -> void:
 func _on_score_changed(player: int, opponent: int) -> void:
 	score_label.text = "YOU  " + str(player) + " - " + str(opponent) + "  OPP"
 	score_label.add_theme_color_override("font_color", UITheme.CREAM)
-	score_label.add_theme_font_size_override("font_size", 24)
+	score_label.add_theme_font_size_override("font_size", 28)
 	_flash_score()
 
 func _on_round_started(round_num: int) -> void:

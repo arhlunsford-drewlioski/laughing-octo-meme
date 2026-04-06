@@ -23,6 +23,14 @@ static func _price_for_card(card: CardData) -> int:
 	## Price based on energy cost and power. Range: 2-5g.
 	match card.card_type:
 		CardData.CardType.TEMPO:
+			if card.base_conversion >= 0.50:
+				return 5
+			if card.base_conversion >= 0.40:
+				return 4
+			if card.energy_cost >= 2:
+				return 3
+			return 2
+		CardData.CardType.POSSESSION:
 			if card.possession_value >= 7:
 				return 5
 			if card.possession_value >= 5:
@@ -30,10 +38,10 @@ static func _price_for_card(card: CardData) -> int:
 			if card.energy_cost >= 2:
 				return 3
 			return 2
-		CardData.CardType.CHANCE:
-			if card.base_conversion >= 0.50:
+		CardData.CardType.DEFENSE:
+			if card.defense_value >= 6:
 				return 5
-			if card.base_conversion >= 0.40:
+			if card.defense_value >= 4:
 				return 4
 			if card.energy_cost >= 2:
 				return 3

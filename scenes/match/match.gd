@@ -1,17 +1,18 @@
 extends Control
-## Main match controller. Orchestrates the 6-round match loop with run awareness.
+## Main match controller. Orchestrates the 8-round TPD match loop with opponent intent.
 
 # -- UI references --
 @onready var score_display: HBoxContainer = %ScoreDisplay
 @onready var momentum_bar: Control = %MomentumBar
-@onready var zone_display: HBoxContainer = %ZoneDisplay
-@onready var formation_display: VBoxContainer = %FormationDisplay
+@onready var zone_display: VBoxContainer = %ZoneDisplay
+@onready var pitch_display: Control = %PitchDisplay
 @onready var hand_panel: HBoxContainer = %HandPanel
 @onready var toast_manager: VBoxContainer = %ToastManager
 @onready var end_round_btn: Button = %EndRoundBtn
 @onready var possession_label: Label = %PossessionLabel
 @onready var halftime_btn: Button = %HalftimeBtn
 @onready var play_again_btn: Button = %PlayAgainBtn
+@onready var deck_label: Label = %DeckLabel
 
 # -- Game systems --
 var player_deck: Deck
@@ -20,25 +21,27 @@ var engine: MatchEngine
 var ai: AIOpponent
 var passives: PassiveSystem
 
-# Chance cards queued by the player this round
-var player_queued_chances: Array[CardData] = []
+# AI's planned cards for this round (shown face-up)
+var ai_planned_cards: Array[CardData] = []
 
 func _ready() -> void:
-	# Connect UI signals once
 	hand_panel.card_selected.connect(_on_card_selected)
 	end_round_btn.pressed.connect(_on_end_round_pressed)
 	halftime_btn.pressed.connect(_on_halftime_continue)
 	play_again_btn.pressed.connect(_on_play_again_pressed)
-	formation_display.formation_changed.connect(_on_formation_changed)
+	pitch_display.formation_changed.connect(_on_formation_changed)
 
-	# Style buttons
 	UITheme.style_button(end_round_btn)
 	UITheme.style_button(halftime_btn)
 	UITheme.style_button(play_again_btn)
 
-	# Style possession label
 	possession_label.add_theme_color_override("font_color", UITheme.CREAM)
-	possession_label.add_theme_font_size_override("font_size", 14)
+	possession_label.add_theme_font_size_override("font_size", 12)
+
+	var deck_panel: PanelContainer = deck_label.get_parent()
+	deck_panel.add_theme_stylebox_override("panel", UITheme.make_panel_style(UITheme.BG_PANEL, UITheme.GOLD, 1))
+	deck_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+	deck_label.add_theme_font_size_override("font_size", 14)
 
 	_setup_match()
 	_start_match()
@@ -48,7 +51,6 @@ func _ready() -> void:
 func _setup_match() -> void:
 	GameManager.reset_match()
 
-	# Build rosters and formations
 	var player_roster := GameManager.selected_roster
 	var opponent_roster: Array[GoblinData]
 
@@ -64,7 +66,6 @@ func _setup_match() -> void:
 	GameManager.player_formation = GoblinDatabase.build_default_formation(player_roster)
 	GameManager.opponent_formation = GoblinDatabase.build_default_formation(opponent_roster)
 
-	# Build decks - use persistent run deck or fresh starter
 	player_deck = Deck.new()
 	if RunManager.run_active:
 		player_deck.initialize(RunManager.run_deck_cards.duplicate())
@@ -80,11 +81,12 @@ func _setup_match() -> void:
 	engine.set_faction_matchup(GameManager.player_faction, GameManager.opponent_faction)
 	ai = AIOpponent.new(opponent_deck)
 
-	# Reset UI state
 	halftime_btn.visible = false
 	play_again_btn.visible = false
 
-	formation_display.setup(GameManager.player_formation, false)
+	pitch_display.setup(GameManager.player_formation, GameManager.opponent_formation, false)
+	_update_deck_display()
+	GameManager.formation_changed.emit()
 
 func _start_match() -> void:
 	_toast("GOALS AND GOBLINS", UITheme.GOLD_LIGHT)
@@ -96,9 +98,9 @@ func _start_match() -> void:
 		_toast(p_info["name"] + " vs " + o_info["name"], UITheme.CREAM_DIM)
 		var counter := engine.faction_counter_result
 		if counter > 0:
-			_toast("Faction advantage! -10% Chance, -1 Momentum for opponent", UITheme.GREEN)
+			_toast("Faction advantage! -10% Tempo, -1 Momentum for opponent", UITheme.GREEN)
 		elif counter < 0:
-			_toast("Faction disadvantage! -10% Chance, -1 Momentum for you", UITheme.RED)
+			_toast("Faction disadvantage! -10% Tempo, -1 Momentum for you", UITheme.RED)
 
 	_next_round()
 
@@ -109,36 +111,58 @@ func _next_round() -> void:
 		_end_match()
 		return
 
-	# Check for halftime
 	if GameManager.is_halftime():
 		_start_halftime()
 		return
 
 	engine.reset_round()
-	player_queued_chances.clear()
+	ai_planned_cards.clear()
 
 	GameManager.start_round()
 
-	# Draw cards
+	# Draw cards for both sides
 	player_deck.discard_hand()
-	var player_draw := GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(true)
+	var player_draw: int = GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(true)
 	player_deck.draw_cards(player_draw)
 
 	opponent_deck.discard_hand()
-	var opp_draw := GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(false)
+	var opp_draw: int = GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(false)
 	opponent_deck.draw_cards(opp_draw)
+
+	# AI plans cards face-up (doesn't apply yet)
+	ai_planned_cards = ai.plan_round(GameManager.ENERGY_PER_ROUND)
+	_show_opponent_intent()
 
 	_refresh_hand()
 	_update_possession_display()
+	_update_deck_display()
 	end_round_btn.disabled = false
 
-	# Show hand, hide halftime button
 	halftime_btn.visible = false
-	formation_display.set_interactive(false)
+	pitch_display.set_interactive(false)
 
 	_toast("Round " + str(GameManager.current_round), UITheme.GOLD)
 	if player_draw > GameManager.HAND_DRAW_SIZE:
 		_toast("Whizzik draws " + str(player_draw - GameManager.HAND_DRAW_SIZE) + " extra!", UITheme.ENERGY_FILLED)
+
+func _show_opponent_intent() -> void:
+	## Display what the opponent is planning to play this round.
+	if ai_planned_cards.is_empty():
+		_toast("OPP: No cards planned", UITheme.CREAM_DIM)
+		return
+
+	var summary: String = "OPP plans: "
+	var parts: Array[String] = []
+	for card in ai_planned_cards:
+		match card.card_type:
+			CardData.CardType.POSSESSION:
+				parts.append("+" + str(card.possession_value) + " Ctrl")
+			CardData.CardType.DEFENSE:
+				parts.append("+" + str(card.defense_value) + " Block")
+			CardData.CardType.TEMPO:
+				parts.append(str(roundi(card.base_conversion * 100)) + "% Shot")
+	summary += ", ".join(parts)
+	_toast(summary, UITheme.RED)
 
 # -- Halftime --
 
@@ -148,40 +172,40 @@ func _start_halftime() -> void:
 	_toast("HALFTIME", UITheme.GOLD_LIGHT)
 	_toast("Rearrange your formation", UITheme.CREAM_DIM)
 
-	# Enable formation editing
-	formation_display.set_interactive(true)
-
-	# Show continue button, hide end round
+	pitch_display.set_interactive(true)
 	halftime_btn.visible = true
 	end_round_btn.disabled = true
 
 func _on_halftime_continue() -> void:
 	halftime_btn.visible = false
-	formation_display.set_interactive(false)
+	pitch_display.set_interactive(false)
 	passives.past_halftime = true
 
 	_toast("Formation locked. Second half!", UITheme.GOLD)
 
-	# Resume match
 	GameManager.set_phase(GameManager.Phase.ROUND_END)
 	_next_round_post_halftime()
 
 func _next_round_post_halftime() -> void:
 	engine.reset_round()
-	player_queued_chances.clear()
+	ai_planned_cards.clear()
 
 	GameManager.start_round()
 
 	player_deck.discard_hand()
-	var player_draw := GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(true)
+	var player_draw: int = GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(true)
 	player_deck.draw_cards(player_draw)
 
 	opponent_deck.discard_hand()
-	var opp_draw := GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(false)
+	var opp_draw: int = GameManager.HAND_DRAW_SIZE + passives.extra_draw_count(false)
 	opponent_deck.draw_cards(opp_draw)
+
+	ai_planned_cards = ai.plan_round(GameManager.ENERGY_PER_ROUND)
+	_show_opponent_intent()
 
 	_refresh_hand()
 	_update_possession_display()
+	_update_deck_display()
 	end_round_btn.disabled = false
 
 	_toast("Round " + str(GameManager.current_round), UITheme.GOLD)
@@ -190,7 +214,7 @@ func _next_round_post_halftime() -> void:
 
 func _on_formation_changed() -> void:
 	GameManager.formation_changed.emit()
-	formation_display.setup(GameManager.player_formation, true)
+	pitch_display.setup(GameManager.player_formation, GameManager.opponent_formation, true)
 
 # -- Card play --
 
@@ -209,31 +233,34 @@ func _on_card_selected(hand_index: int) -> void:
 		return
 
 	match played.card_type:
-		CardData.CardType.TEMPO:
-			engine.apply_tempo(played, true)
-			var tempo_bonus := passives.tempo_possession_bonus(true)
-			if tempo_bonus > 0:
-				engine.player_possession += tempo_bonus
-			var disruption := passives.tempo_disruption_penalty(true)
+		CardData.CardType.POSSESSION:
+			engine.apply_possession(played, true)
+			var poss_bonus: int = passives.possession_play_bonus(true)
+			if poss_bonus > 0:
+				engine.player_possession += poss_bonus
+			var disruption: int = passives.possession_disruption_penalty(true)
 			if disruption > 0:
 				engine.player_possession = maxi(0, engine.player_possession - disruption)
-			var msg := played.card_name + " (+" + str(played.possession_value) + " poss"
-			if tempo_bonus > 0:
-				msg += " +" + str(tempo_bonus) + " passive"
+			var msg: String = played.card_name + " (+" + str(played.possession_value) + " ctrl"
+			if poss_bonus > 0:
+				msg += " +" + str(poss_bonus) + " passive"
 			if disruption > 0:
 				msg += " -" + str(disruption) + " disrupted"
 			msg += ")"
-			_toast(msg, UITheme.TEMPO_BORDER)
-		CardData.CardType.CHANCE:
-			engine.queue_chance(played, true)
-			player_queued_chances.append(played)
-			_toast(played.card_name + " readied (" + str(roundi(played.base_conversion * 100)) + "%)", UITheme.CHANCE_BORDER)
+			_toast(msg, UITheme.POSSESSION_BORDER)
+		CardData.CardType.DEFENSE:
+			engine.apply_defense(played, true)
+			_toast(played.card_name + " (+" + str(played.defense_value) + " block)", UITheme.DEFENSE_BORDER)
+		CardData.CardType.TEMPO:
+			engine.queue_tempo(played, true)
+			_toast(played.card_name + " readied (" + str(roundi(played.base_conversion * 100)) + "% goal)", UITheme.TEMPO_BORDER)
 
 	if played.adds_exhausted:
 		player_deck.add_exhausted_card()
 
 	_refresh_hand()
 	_update_possession_display()
+	_update_deck_display()
 
 # -- Round resolution --
 
@@ -244,44 +271,48 @@ func _on_end_round_pressed() -> void:
 	end_round_btn.disabled = true
 	GameManager.set_phase(GameManager.Phase.RESOLVING)
 
-	# AI plays cards
-	var ai_played := ai.play_round(engine, GameManager.ENERGY_PER_ROUND)
+	# AI executes its planned cards
+	var ai_played := ai.execute_plan(engine)
 	for card in ai_played:
 		match card.card_type:
-			CardData.CardType.TEMPO:
-				var tempo_bonus := passives.tempo_possession_bonus(false)
-				if tempo_bonus > 0:
-					engine.opponent_possession += tempo_bonus
-				var disruption := passives.tempo_disruption_penalty(false)
+			CardData.CardType.POSSESSION:
+				var poss_bonus: int = passives.possession_play_bonus(false)
+				if poss_bonus > 0:
+					engine.opponent_possession += poss_bonus
+				var disruption: int = passives.possession_disruption_penalty(false)
 				if disruption > 0:
 					engine.opponent_possession = maxi(0, engine.opponent_possession - disruption)
-				_toast("OPP: " + card.card_name, UITheme.RED)
-			CardData.CardType.CHANCE:
-				_toast("OPP readied: " + card.card_name, UITheme.RED)
+				_toast("OPP: " + card.card_name + " (+" + str(card.possession_value) + " ctrl)", UITheme.RED)
+			CardData.CardType.DEFENSE:
+				_toast("OPP: " + card.card_name + " (+" + str(card.defense_value) + " block)", UITheme.RED)
+			CardData.CardType.TEMPO:
+				_toast("OPP: " + card.card_name + " (" + str(roundi(card.base_conversion * 100)) + "% goal)", UITheme.RED)
 
 	await get_tree().create_timer(0.4).timeout
 
-	# 1. Resolve possession
-	var poss_diff := engine.player_possession - engine.opponent_possession
-	var diff_text := ""
+	# 1. Resolve net possession
+	var player_net: int = engine.get_net_possession(true)
+	var opponent_net: int = engine.get_net_possession(false)
+	var poss_diff: int = player_net - opponent_net
+	var diff_text: String = ""
 	if poss_diff > 0:
 		diff_text = " (+" + str(poss_diff) + ")"
 	elif poss_diff < 0:
 		diff_text = " (" + str(poss_diff) + ")"
-	_toast("Possession: YOU " + str(engine.player_possession) + " vs " + str(engine.opponent_possession) + " OPP" + diff_text, UITheme.CREAM)
+	_toast("Net Control: YOU " + str(player_net) + " vs " + str(opponent_net) + " OPP" + diff_text, UITheme.CREAM)
 
-	var momentum_shift := engine.resolve_possession()
+	var momentum_shift: int = engine.resolve_possession()
 	if momentum_shift != 0:
 		GameManager.shift_momentum(momentum_shift)
-		var direction := "toward you" if momentum_shift > 0 else "toward opponent"
+		var direction: String = "toward you" if momentum_shift > 0 else "toward opponent"
 		_toast("Momentum shifts " + direction + " (" + ("+" if momentum_shift > 0 else "") + str(momentum_shift) + ")", UITheme.MOMENTUM_MARKER)
 	else:
 		_toast("Momentum holds", UITheme.CREAM_DIM)
 
 	await get_tree().create_timer(0.5).timeout
 
-	# 2. Resolve chance cards
-	var results := engine.resolve_all_chances(GameManager.momentum)
+	# 2. Resolve Tempo goal attempts
+	var results := engine.resolve_all_tempo_goals(GameManager.momentum)
 	if results.is_empty():
 		_toast("No shots this round", UITheme.CREAM_DIM)
 	else:
@@ -293,16 +324,16 @@ func _on_end_round_pressed() -> void:
 			var converted: bool = result["converted"]
 			var threshold: float = result["threshold"]
 			var saved: bool = result["saved"]
-			var side := "YOU" if is_player else "OPP"
+			var side: String = "YOU" if is_player else "OPP"
 
 			if saved:
 				_toast("SAVED! " + side + " - " + card.card_name + " (" + str(roundi(threshold * 100)) + "%)", UITheme.ENERGY_FILLED)
 			elif converted:
 				GameManager.add_goal(is_player)
 				_toast("GOAL! " + side + " - " + card.card_name + " (" + str(roundi(threshold * 100)) + "%)", UITheme.GOLD_LIGHT)
-				var goal_mom := passives.goal_momentum_bonus(is_player)
+				var goal_mom: int = passives.goal_momentum_bonus(is_player)
 				if goal_mom > 0:
-					var shift := goal_mom if is_player else -goal_mom
+					var shift: int = goal_mom if is_player else -goal_mom
 					GameManager.shift_momentum(shift)
 					_toast("Blix frenzy +" + str(goal_mom) + " momentum!", UITheme.ENERGY_FILLED)
 			else:
@@ -317,8 +348,7 @@ func _on_end_round_pressed() -> void:
 # -- Match end --
 
 func _end_match() -> void:
-	# Check for knockout draw
-	var is_knockout := RunManager.run_active and RunManager.tournament and not RunManager.tournament.is_player_in_group_stage()
+	var is_knockout: bool = RunManager.run_active and RunManager.tournament and not RunManager.tournament.is_player_in_group_stage()
 	if is_knockout and GameManager.player_goals == GameManager.opponent_goals:
 		_toast("EXTRA TIME!", UITheme.GOLD_LIGHT)
 		_toast("Knockout - one more round!", UITheme.CREAM)
@@ -361,7 +391,39 @@ func _refresh_hand() -> void:
 	hand_panel.refresh(player_deck.hand)
 
 func _update_possession_display() -> void:
-	possession_label.text = "Possession: " + str(engine.player_possession)
+	var my_ctrl: int = engine.player_possession
+	var my_def: int = engine.player_defense
+	var parts: Array[String] = []
+	if my_ctrl > 0:
+		parts.append("Poss:" + str(my_ctrl))
+	if my_def > 0:
+		parts.append("Def:" + str(my_def))
+	if parts.is_empty():
+		possession_label.text = "Poss: 0"
+	else:
+		possession_label.text = " ".join(parts)
+
+	# Update pitch goblin stat overlays
+	# In StS mode, show possession on midfield, defense on defense zone
+	var player_buffs: Dictionary = {
+		"attack": 0,
+		"midfield": my_ctrl,
+		"defense": my_def,
+		"goal": 0,
+	}
+	# Show what opponent has committed (from their planned/played cards)
+	var opp_buffs: Dictionary = {
+		"attack": 0,
+		"midfield": engine.opponent_possession,
+		"defense": engine.opponent_defense,
+		"goal": 0,
+	}
+	pitch_display.set_zone_buffs(player_buffs, opp_buffs)
+
+func _update_deck_display() -> void:
+	var draw_count: int = player_deck.draw_pile.size()
+	var discard_count: int = player_deck.discard_pile.size()
+	deck_label.text = "DECK\n" + str(draw_count) + " / " + str(discard_count)
 
 func _toast(text: String, color: Color = UITheme.CREAM) -> void:
 	toast_manager.show_toast(text, color)

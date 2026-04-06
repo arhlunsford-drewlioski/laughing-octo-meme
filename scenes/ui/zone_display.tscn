@@ -2,7 +2,9 @@
 
 [ext_resource type="Script" uid="uid://dht5w0snogvh5" path="res://scenes/ui/zone_display.gd" id="1"]
 
-[node name="ZoneDisplay" type="HBoxContainer"]
+[node name="ZoneDisplay" type="VBoxContainer"]
 layout_mode = 3
 anchors_preset = 0
+custom_minimum_size = Vector2(100, 0)
+theme_override_constants/separation = 4
 script = ExtResource("1")

@@ -2,8 +2,8 @@ extends Node
 ## Global match state. Autoloaded as GameManager.
 
 # -- Constants --
-const MAX_ROUNDS: int = 6
-const HALFTIME_AFTER: int = 3
+const MAX_ROUNDS: int = 8
+const HALFTIME_AFTER: int = 4
 const ENERGY_PER_ROUND: int = 3
 const MOMENTUM_MIN: int = -5
 const MOMENTUM_MAX: int = 5  # 11 ticks total: -5 to +5, center = 0
@@ -49,6 +49,9 @@ func reset_match() -> void:
 	opponent_goals = 0
 	energy = ENERGY_PER_ROUND
 	set_phase(Phase.SETUP)
+	score_changed.emit(player_goals, opponent_goals)
+	momentum_changed.emit(momentum)
+	energy_changed.emit(energy)
 
 func set_phase(phase: Phase) -> void:
 	current_phase = phase

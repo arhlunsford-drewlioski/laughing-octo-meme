@@ -2,7 +2,7 @@ extends Control
 ## Gradient-fill momentum bar. Smooth tug-of-war from -5 to +5.
 
 const SLIDE_DURATION: float = 0.4
-const BAR_HEIGHT: float = 40.0
+const BAR_HEIGHT: float = 28.0
 const NOTCH_COUNT: int = 11
 
 var current_momentum: int = 0
@@ -10,7 +10,7 @@ var display_momentum: float = 0.0
 
 func _ready() -> void:
 	GameManager.momentum_changed.connect(_on_momentum_changed)
-	custom_minimum_size.y = 60
+	custom_minimum_size.y = 40
 
 func _on_momentum_changed(new_value: int) -> void:
 	current_momentum = new_value

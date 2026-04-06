@@ -14,10 +14,12 @@ const GREEN := Color(0.3, 0.85, 0.35)
 const BLUE := Color(0.3, 0.6, 1.0)
 
 # -- Card type colors --
-const TEMPO_BG := Color(0.18, 0.35, 0.18)           # Dark green
-const TEMPO_BORDER := Color(0.3, 0.6, 0.3)
-const CHANCE_BG := Color(0.3, 0.15, 0.35)           # Dark purple
-const CHANCE_BORDER := Color(0.55, 0.3, 0.65)
+const TEMPO_BG := Color(0.35, 0.15, 0.15)           # Dark red - goal attempts
+const TEMPO_BORDER := Color(0.7, 0.3, 0.3)
+const POSSESSION_BG := Color(0.15, 0.2, 0.35)       # Dark blue - field control
+const POSSESSION_BORDER := Color(0.3, 0.5, 0.8)
+const DEFENSE_BG := Color(0.3, 0.25, 0.12)          # Dark amber - blocks
+const DEFENSE_BORDER := Color(0.65, 0.5, 0.2)
 const EXHAUSTED_BG := Color(0.15, 0.15, 0.15)
 const EXHAUSTED_BORDER := Color(0.3, 0.3, 0.3)
 

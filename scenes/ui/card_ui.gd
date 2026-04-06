@@ -49,15 +49,45 @@ func _update_display() -> void:
 		CardData.CardType.TEMPO:
 			type_label.text = "TEMPO"
 			type_label.add_theme_color_override("font_color", UITheme.TEMPO_BORDER)
-			value_label.text = "+" + str(card_data.possession_value) + " Possession"
+			value_label.text = str(roundi(card_data.base_conversion * 100)) + "% Goal"
 			bg_color = UITheme.TEMPO_BG
 			border_color = UITheme.TEMPO_BORDER
-		CardData.CardType.CHANCE:
-			type_label.text = "CHANCE"
-			type_label.add_theme_color_override("font_color", UITheme.CHANCE_BORDER)
-			value_label.text = str(roundi(card_data.base_conversion * 100)) + "% Base"
-			bg_color = UITheme.CHANCE_BG
-			border_color = UITheme.CHANCE_BORDER
+		CardData.CardType.POSSESSION:
+			type_label.text = "POSSESSION"
+			type_label.add_theme_color_override("font_color", UITheme.POSSESSION_BORDER)
+			value_label.text = "+" + str(card_data.possession_value) + " Control"
+			bg_color = UITheme.POSSESSION_BG
+			border_color = UITheme.POSSESSION_BORDER
+		CardData.CardType.DEFENSE:
+			type_label.text = "DEFENSE"
+			type_label.add_theme_color_override("font_color", UITheme.DEFENSE_BORDER)
+			value_label.text = "+" + str(card_data.defense_value) + " Block"
+			bg_color = UITheme.DEFENSE_BG
+			border_color = UITheme.DEFENSE_BORDER
+		CardData.CardType.ATK_BUFF:
+			type_label.text = "ATK BUFF"
+			type_label.add_theme_color_override("font_color", UITheme.TEMPO_BORDER)
+			value_label.text = "+" + str(card_data.possession_value) + " ATK"
+			bg_color = UITheme.TEMPO_BG
+			border_color = UITheme.TEMPO_BORDER
+		CardData.CardType.DEF_BUFF:
+			type_label.text = "DEF BUFF"
+			type_label.add_theme_color_override("font_color", UITheme.DEFENSE_BORDER)
+			value_label.text = "+" + str(card_data.defense_value) + " DEF"
+			bg_color = UITheme.DEFENSE_BG
+			border_color = UITheme.DEFENSE_BORDER
+		CardData.CardType.MID_BUFF:
+			type_label.text = "MID BUFF"
+			type_label.add_theme_color_override("font_color", UITheme.POSSESSION_BORDER)
+			value_label.text = "+" + str(card_data.possession_value) + " MID"
+			bg_color = UITheme.POSSESSION_BG
+			border_color = UITheme.POSSESSION_BORDER
+		CardData.CardType.TACTICAL:
+			type_label.text = "TACTICAL"
+			type_label.add_theme_color_override("font_color", UITheme.GOLD)
+			value_label.text = "+" + str(card_data.possession_value) + " ATK, -2 DEF"
+			bg_color = Color(0.25, 0.2, 0.1)
+			border_color = UITheme.GOLD
 		CardData.CardType.EXHAUSTED:
 			type_label.text = "EXHAUSTED"
 			type_label.add_theme_color_override("font_color", UITheme.EXHAUSTED_BORDER)

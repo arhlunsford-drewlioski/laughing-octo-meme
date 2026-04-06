@@ -1,14 +1,14 @@
-[gd_scene load_steps=8 format=3 uid="uid://fybwvl1ovlvh"]
+[gd_scene load_steps=8 format=3]
 
-[ext_resource type="Script" uid="uid://b4qj0c0dowd8q" path="res://scenes/match/match.gd" id="1"]
+[ext_resource type="Script" path="res://scenes/match_auto/match_auto.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://kn2o4jk5x344" path="res://scenes/ui/score_display.tscn" id="2"]
 [ext_resource type="PackedScene" uid="uid://bxxd2bvfeav17" path="res://scenes/ui/momentum_bar.tscn" id="3"]
 [ext_resource type="PackedScene" uid="uid://wnerm8hcpfba" path="res://scenes/ui/zone_display.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://44latv3my820" path="res://scenes/ui/hand_panel.tscn" id="5"]
+[ext_resource type="Script" path="res://scenes/ui/pitch_display.gd" id="6"]
 [ext_resource type="Script" path="res://scenes/ui/toast_manager.gd" id="7"]
-[ext_resource type="Script" path="res://scenes/ui/pitch_display.gd" id="8"]
 
-[node name="Match" type="Control"]
+[node name="MatchAuto" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -79,7 +79,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("8")
+script = ExtResource("6")
 
 [node name="ToastOverlay" type="MarginContainer" parent="MainLayout/MiddleSection/PitchMargin/PitchContainer"]
 layout_mode = 1
@@ -171,25 +171,13 @@ theme_override_constants/margin_right = 8
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="EndRoundBtn" type="Button" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
+[node name="ResolveBtn" type="Button" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "END ROUND"
+text = "RESOLVE"
 
-[node name="HalftimeBtn" type="Button" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-text = "CONTINUE"
-
-[node name="PlayAgainBtn" type="Button" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-text = "PLAY AGAIN"
-
-[node name="PossessionLabel" type="Label" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
+[node name="BuffLabel" type="Label" parent="MainLayout/BottomBar/ButtonColumn/ButtonMargin/BtnCol"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Possession: 0"
+text = "No buffs"
 horizontal_alignment = 1

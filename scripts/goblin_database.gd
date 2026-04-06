@@ -21,12 +21,12 @@ static func full_roster() -> Array[GoblinData]:
 		make_goblin(
 			"Gorwick the Relentless",
 			"Never stops running. Never knows where he's going.",
-			"Adds +1 Possession when any Tempo card is played.",
+			"Adds +1 Possession when any Possession card is played.",
 			5, 3, 1, 1, F.GILDED_CODEX),
 		make_goblin(
 			"Definitely Not Offside Dave",
 			"Standing exactly where the rules say he shouldn't be.",
-			"Chance cards gain +5% conversion when in Attack zone.",
+			"Tempo cards gain +5% conversion when in Attack zone.",
 			4, 2, 1, 0, F.SCREAMING_TIDE),
 		make_goblin(
 			"Gribbix the Adequate",
@@ -36,7 +36,7 @@ static func full_roster() -> Array[GoblinData]:
 		make_goblin(
 			"Skulkra Ironshins",
 			"Got kicked so many times her shins became armor.",
-			"Reduces opponent Chance conversion by 3% when in Defense.",
+			"Reduces opponent Tempo conversion by 3% when in Defense.",
 			1, 3, 5, 2, F.IRONCLAD_BASTIONS),
 		make_goblin(
 			"Whizzik Fastfoot",
@@ -46,7 +46,7 @@ static func full_roster() -> Array[GoblinData]:
 		make_goblin(
 			"Nettlebrine the Immovable",
 			"Claimed the goal as personal territory. Will fight the ball.",
-			"Once per match: negate a converted Chance card.",
+			"Once per match: negate a converted Tempo goal.",
 			0, 1, 2, 6, F.IRONCLAD_BASTIONS),
 		make_goblin(
 			"Blix the Unhinged",
@@ -56,7 +56,7 @@ static func full_roster() -> Array[GoblinData]:
 		make_goblin(
 			"Old Mugwort",
 			"Has been playing since before the rules were invented.",
-			"Opponent Tempo cards give -1 Possession each.",
+			"Opponent Possession cards give -1 each.",
 			1, 4, 3, 2, F.MIDNIGHT_SKULK),
 		make_goblin(
 			"Pibble Twoboots",
@@ -66,7 +66,7 @@ static func full_roster() -> Array[GoblinData]:
 		make_goblin(
 			"Snaggleclaw the Lucky",
 			"Trips into goals. Has never scored on purpose.",
-			"Chance cards under 25% base gain +10% bonus.",
+			"Tempo cards under 25% base gain +10% bonus.",
 			3, 3, 2, 1, F.THUNDERING_MAW),
 	]
 

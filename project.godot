@@ -13,7 +13,7 @@ config_version=5
 config/name="Goals and Goblins"
 config/description="6v6 fantasy soccer roguelite deck builder. Every player is a goblin."
 run/main_scene="res://scenes/screens/main_menu.tscn"
-config/features=PackedStringArray("4.4", "Mobile")
+config/features=PackedStringArray("4.4", "Forward Plus")
 
 [autoload]
 
@@ -23,11 +23,10 @@ UITheme="*res://scripts/autoload/ui_theme.gd"
 
 [display]
 
-window/size/viewport_width=720
-window/size/viewport_height=1280
+window/size/viewport_width=1280
+window/size/viewport_height=720
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep_width"
-window/handheld/orientation=1
+window/stretch/aspect="keep_height"
 
 [input]
 
@@ -38,4 +37,4 @@ touch={
 
 [rendering]
 
-renderer/rendering_method="mobile"
+renderer/rendering_method="forward_plus"
