@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://main_menu"]
+[gd_scene load_steps=2 format=3 uid="uid://14ssqida0anb"]
 
-[ext_resource type="Script" path="res://scenes/screens/main_menu.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://c4lxpjhhlc128" path="res://scenes/screens/main_menu.gd" id="1_script"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -18,7 +18,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.08, 0.08, 0.12, 1)
+color = Color(0.102, 0.102, 0.141, 1)
 
 [node name="VBox" type="VBoxContainer" parent="."]
 layout_mode = 1
@@ -53,13 +53,13 @@ text = "32-Team Goblin World Cup"
 horizontal_alignment = 1
 
 [node name="Spacer" type="Control" parent="VBox"]
-layout_mode = 2
 custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
 
 [node name="NewRunBtn" type="Button" parent="VBox"]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(250, 60)
+layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 22
 text = "NEW TOURNAMENT"

@@ -1,22 +1,25 @@
 extends PanelContainer
-## Visual representation of a single card. Colored rectangle + text labels.
+## Visual representation of a single card. Gold-bordered, type-colored, with hover/play tweens.
 
 signal card_clicked(card_index: int)
 
-const TEMPO_COLOR := Color(0.2, 0.5, 0.2)    # Green
-const CHANCE_COLOR := Color(0.6, 0.2, 0.6)   # Purple
-const EXHAUSTED_COLOR := Color(0.25, 0.25, 0.25)  # Dark gray
-const HOVER_BRIGHTEN := 0.15
+const HOVER_SCALE := Vector2(1.05, 1.05)
+const HOVER_DURATION := 0.12
 
 var card_data: CardData
 var card_index: int = -1
+var _hover_tween: Tween
 
 @onready var name_label: Label = %NameLabel
 @onready var type_label: Label = %TypeLabel
 @onready var cost_label: Label = %CostLabel
+@onready var cost_badge: PanelContainer = %CostBadge
 @onready var value_label: Label = %ValueLabel
 @onready var flavor_label: Label = %FlavorLabel
-@onready var bg: ColorRect = %Background
+
+func _ready() -> void:
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
 
 func setup(data: CardData, index: int) -> void:
 	card_data = data
@@ -28,28 +31,95 @@ func _update_display() -> void:
 		return
 
 	name_label.text = card_data.card_name
-	cost_label.text = "E:" + str(card_data.energy_cost) if card_data.is_playable() else ""
+	name_label.add_theme_color_override("font_color", UITheme.CREAM)
+	name_label.add_theme_font_size_override("font_size", 15)
+
+	flavor_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+	flavor_label.add_theme_font_size_override("font_size", 12)
+	flavor_label.text = card_data.flavor_text
+
+	type_label.add_theme_font_size_override("font_size", 12)
+	value_label.add_theme_color_override("font_color", UITheme.CREAM)
+	value_label.add_theme_font_size_override("font_size", 13)
+
+	var bg_color: Color
+	var border_color: Color
 
 	match card_data.card_type:
 		CardData.CardType.TEMPO:
 			type_label.text = "TEMPO"
+			type_label.add_theme_color_override("font_color", UITheme.TEMPO_BORDER)
 			value_label.text = "+" + str(card_data.possession_value) + " Possession"
-			bg.color = TEMPO_COLOR
+			bg_color = UITheme.TEMPO_BG
+			border_color = UITheme.TEMPO_BORDER
 		CardData.CardType.CHANCE:
 			type_label.text = "CHANCE"
+			type_label.add_theme_color_override("font_color", UITheme.CHANCE_BORDER)
 			value_label.text = str(roundi(card_data.base_conversion * 100)) + "% Base"
-			bg.color = CHANCE_COLOR
+			bg_color = UITheme.CHANCE_BG
+			border_color = UITheme.CHANCE_BORDER
 		CardData.CardType.EXHAUSTED:
 			type_label.text = "EXHAUSTED"
+			type_label.add_theme_color_override("font_color", UITheme.EXHAUSTED_BORDER)
 			value_label.text = "Unplayable"
-			bg.color = EXHAUSTED_COLOR
+			bg_color = UITheme.EXHAUSTED_BG
+			border_color = UITheme.EXHAUSTED_BORDER
 
-	flavor_label.text = card_data.flavor_text
+	# Card panel style with gold outer border and type-colored fill
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = bg_color
+	card_style.corner_radius_top_left = UITheme.CORNER_RADIUS
+	card_style.corner_radius_top_right = UITheme.CORNER_RADIUS
+	card_style.corner_radius_bottom_left = UITheme.CORNER_RADIUS
+	card_style.corner_radius_bottom_right = UITheme.CORNER_RADIUS
+	card_style.content_margin_left = 10
+	card_style.content_margin_right = 10
+	card_style.content_margin_top = 6
+	card_style.content_margin_bottom = 6
+	card_style.border_width_left = UITheme.CARD_BORDER_WIDTH
+	card_style.border_width_right = UITheme.CARD_BORDER_WIDTH
+	card_style.border_width_top = UITheme.CARD_BORDER_WIDTH
+	card_style.border_width_bottom = UITheme.CARD_BORDER_WIDTH
+	card_style.border_color = UITheme.GOLD
+	add_theme_stylebox_override("panel", card_style)
+
+	# Energy cost badge - circular blue badge
+	if card_data.is_playable():
+		cost_label.text = str(card_data.energy_cost)
+		cost_label.add_theme_color_override("font_color", Color.WHITE)
+		cost_label.add_theme_font_size_override("font_size", 16)
+		var badge_style := StyleBoxFlat.new()
+		badge_style.bg_color = UITheme.ENERGY_FILLED
+		badge_style.corner_radius_top_left = 16
+		badge_style.corner_radius_top_right = 16
+		badge_style.corner_radius_bottom_left = 16
+		badge_style.corner_radius_bottom_right = 16
+		badge_style.content_margin_left = 4
+		badge_style.content_margin_right = 4
+		badge_style.content_margin_top = 2
+		badge_style.content_margin_bottom = 2
+		cost_badge.add_theme_stylebox_override("panel", badge_style)
+		cost_badge.visible = true
+	else:
+		cost_badge.visible = false
 
 func play_animation() -> void:
 	var tween := create_tween()
-	tween.tween_property(self, "scale", Vector2(0.8, 0.8), 0.15).set_ease(Tween.EASE_IN)
-	tween.parallel().tween_property(self, "modulate:a", 0.0, 0.15)
+	tween.tween_property(self, "position:y", position.y - 40, 0.15).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(self, "modulate:a", 0.0, 0.2)
+
+func _on_mouse_entered() -> void:
+	if card_data and card_data.is_playable():
+		if _hover_tween:
+			_hover_tween.kill()
+		_hover_tween = create_tween()
+		_hover_tween.tween_property(self, "scale", HOVER_SCALE, HOVER_DURATION).set_ease(Tween.EASE_OUT)
+
+func _on_mouse_exited() -> void:
+	if _hover_tween:
+		_hover_tween.kill()
+	_hover_tween = create_tween()
+	_hover_tween.tween_property(self, "scale", Vector2.ONE, HOVER_DURATION).set_ease(Tween.EASE_OUT)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:

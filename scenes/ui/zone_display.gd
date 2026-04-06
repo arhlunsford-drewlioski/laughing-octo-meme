@@ -1,7 +1,6 @@
 extends HBoxContainer
-## Shows zone ratings for both sides. Colored rectangles with numbers.
+## Shows zone ratings for both sides. Styled panels with themed colors.
 
-const ZONE_COLOR := Color(0.15, 0.15, 0.2)
 const ZONE_NAMES := ["attack", "midfield", "defense", "goal"]
 const ZONE_LABELS := ["ATK", "MID", "DEF", "GK"]
 
@@ -22,29 +21,44 @@ func _build_display() -> void:
 		var player_val: int = player_zones[zone_name]
 		var opp_val: int = opponent_zones[zone_name]
 
+		var panel := PanelContainer.new()
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var style := UITheme.make_panel_style(UITheme.BG_PANEL, UITheme.GOLD, 1)
+		style.content_margin_left = 4
+		style.content_margin_right = 4
+		style.content_margin_top = 4
+		style.content_margin_bottom = 4
+		panel.add_theme_stylebox_override("panel", style)
+		add_child(panel)
+
 		var vbox := VBoxContainer.new()
-		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-		add_child(vbox)
+		panel.add_child(vbox)
 
 		var header := Label.new()
 		header.text = zone_label
 		header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		header.add_theme_color_override("font_color", UITheme.GOLD)
+		header.add_theme_font_size_override("font_size", 12)
 		vbox.add_child(header)
 
 		var player_label := Label.new()
 		player_label.text = str(player_val)
 		player_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		player_label.add_theme_color_override("font_color", Color(0.2, 0.6, 1.0))
+		player_label.add_theme_color_override("font_color", UITheme.BLUE)
+		player_label.add_theme_font_size_override("font_size", 16)
 		vbox.add_child(player_label)
 
 		var vs_label := Label.new()
 		vs_label.text = "vs"
 		vs_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vs_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+		vs_label.add_theme_font_size_override("font_size", 10)
 		vbox.add_child(vs_label)
 
 		var opp_label := Label.new()
 		opp_label.text = str(opp_val)
 		opp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		opp_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.2))
+		opp_label.add_theme_color_override("font_color", UITheme.RED)
+		opp_label.add_theme_font_size_override("font_size", 16)
 		vbox.add_child(opp_label)

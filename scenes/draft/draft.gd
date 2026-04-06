@@ -2,13 +2,12 @@ extends Control
 ## Pre-match draft screen. Pick 6 goblins from the full pool.
 
 const TEAM_SIZE: int = 6
-const SELECTED_COLOR := Color(0.2, 0.6, 0.3, 1.0)
-const UNSELECTED_COLOR := Color(0.15, 0.15, 0.2, 1.0)
-const HOVER_COLOR := Color(0.2, 0.2, 0.3, 1.0)
+const SELECTED_COLOR := Color(0.2, 0.45, 0.2, 1.0)
+const UNSELECTED_COLOR := Color(0.165, 0.141, 0.114, 1.0)
 
 var full_roster: Array[GoblinData] = []
 var selected: Array[GoblinData] = []
-var goblin_panels: Dictionary = {}  # GoblinData -> PanelContainer
+var goblin_panels: Dictionary = {}
 
 @onready var grid: GridContainer = %GoblinGrid
 @onready var start_btn: Button = %StartMatchBtn
@@ -20,6 +19,12 @@ func _ready() -> void:
 	full_roster = GoblinDatabase.full_roster()
 	start_btn.pressed.connect(_on_start_match)
 	start_btn.disabled = true
+
+	# Apply theme styling
+	UITheme.style_header(title_label, UITheme.FONT_HEADER)
+	UITheme.style_dim(count_label, 16)
+	UITheme.style_button(start_btn)
+
 	_build_roster_display()
 	_update_count()
 
@@ -39,19 +44,19 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 
 	var stylebox := StyleBoxFlat.new()
 	stylebox.bg_color = UNSELECTED_COLOR
-	stylebox.corner_radius_top_left = 8
-	stylebox.corner_radius_top_right = 8
-	stylebox.corner_radius_bottom_left = 8
-	stylebox.corner_radius_bottom_right = 8
+	stylebox.corner_radius_top_left = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_top_right = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_bottom_left = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_bottom_right = UITheme.CORNER_RADIUS
 	stylebox.content_margin_left = 12
 	stylebox.content_margin_right = 12
 	stylebox.content_margin_top = 8
 	stylebox.content_margin_bottom = 8
-	stylebox.border_width_left = 2
-	stylebox.border_width_right = 2
-	stylebox.border_width_top = 2
-	stylebox.border_width_bottom = 2
-	stylebox.border_color = Color(0.3, 0.3, 0.3)
+	stylebox.border_width_left = UITheme.BORDER_WIDTH
+	stylebox.border_width_right = UITheme.BORDER_WIDTH
+	stylebox.border_width_top = UITheme.BORDER_WIDTH
+	stylebox.border_width_bottom = UITheme.BORDER_WIDTH
+	stylebox.border_color = Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.3)
 	panel.add_theme_stylebox_override("panel", stylebox)
 
 	var vbox := VBoxContainer.new()
@@ -62,6 +67,7 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	var name_label := Label.new()
 	name_label.text = goblin.goblin_name
 	name_label.add_theme_font_size_override("font_size", 18)
+	name_label.add_theme_color_override("font_color", UITheme.CREAM)
 	vbox.add_child(name_label)
 
 	# Faction
@@ -75,7 +81,7 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	# Personality
 	var pers_label := Label.new()
 	pers_label.text = goblin.personality
-	pers_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	pers_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
 	pers_label.add_theme_font_size_override("font_size", 13)
 	vbox.add_child(pers_label)
 
@@ -87,11 +93,11 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	for stat in [["ATK", goblin.attack_rating], ["MID", goblin.midfield_rating], ["DEF", goblin.defense_rating], ["GK", goblin.goal_rating]]:
 		var stat_label := Label.new()
 		stat_label.text = stat[0] + " " + str(stat[1])
-		var color := Color.WHITE
+		var color := UITheme.CREAM
 		if stat[1] >= 5:
-			color = Color(0.3, 1.0, 0.3)
+			color = UITheme.GREEN
 		elif stat[1] >= 3:
-			color = Color(1.0, 0.9, 0.3)
+			color = UITheme.GOLD
 		elif stat[1] <= 1:
 			color = Color(0.6, 0.4, 0.4)
 		stat_label.add_theme_color_override("font_color", color)
@@ -101,7 +107,7 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	# Passive
 	var passive_label := Label.new()
 	passive_label.text = goblin.passive_description
-	passive_label.add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))
+	passive_label.add_theme_color_override("font_color", UITheme.ENERGY_FILLED)
 	passive_label.add_theme_font_size_override("font_size", 13)
 	passive_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(passive_label)
@@ -127,17 +133,16 @@ func _update_visuals() -> void:
 		var stylebox: StyleBoxFlat = panel.get_theme_stylebox("panel") as StyleBoxFlat
 		if selected.has(goblin):
 			stylebox.bg_color = SELECTED_COLOR
-			stylebox.border_color = Color(0.3, 1.0, 0.4)
+			stylebox.border_color = UITheme.GREEN
 		else:
 			stylebox.bg_color = UNSELECTED_COLOR
-			stylebox.border_color = Color(0.3, 0.3, 0.3)
+			stylebox.border_color = Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.3)
 		panel.queue_redraw()
 
 func _update_count() -> void:
 	count_label.text = str(selected.size()) + " / " + str(TEAM_SIZE) + " selected"
 	start_btn.disabled = selected.size() != TEAM_SIZE
 
-	# Update faction summary
 	if selected.size() > 0:
 		var faction := FactionSystem.get_majority_faction(selected)
 		if faction != FactionSystem.Faction.NONE:
@@ -146,7 +151,7 @@ func _update_count() -> void:
 			faction_label.add_theme_color_override("font_color", info["color"])
 		else:
 			faction_label.text = "Team: Mixed (no faction bonus)"
-			faction_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+			faction_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
 	else:
 		faction_label.text = ""
 

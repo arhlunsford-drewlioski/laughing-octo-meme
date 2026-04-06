@@ -4,30 +4,34 @@
 
 [node name="CardUI" type="PanelContainer"]
 custom_minimum_size = Vector2(160, 220)
+pivot_offset = Vector2(80, 110)
 script = ExtResource("1")
-
-[node name="Background" type="ColorRect" parent="."]
-unique_name_in_owner = true
-layout_mode = 2
-color = Color(0.2, 0.5, 0.2, 1)
 
 [node name="VBox" type="VBoxContainer" parent="."]
 layout_mode = 2
+theme_override_constants/separation = 2
 
 [node name="TopRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
+
+[node name="CostBadge" type="PanelContainer" parent="VBox/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(32, 32)
+
+[node name="CostLabel" type="Label" parent="VBox/TopRow/CostBadge"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "1"
 
 [node name="TypeLabel" type="Label" parent="VBox/TopRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "TEMPO"
-
-[node name="CostLabel" type="Label" parent="VBox/TopRow"]
-unique_name_in_owner = true
-layout_mode = 2
 horizontal_alignment = 2
-text = "E:1"
+text = "TEMPO"
 
 [node name="Spacer1" type="Control" parent="VBox"]
 layout_mode = 2

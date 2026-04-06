@@ -5,13 +5,12 @@ extends VBoxContainer
 signal formation_changed()
 
 const ZONE_COLORS := {
-	"attack": Color(0.6, 0.2, 0.2, 0.4),
-	"midfield": Color(0.2, 0.4, 0.2, 0.4),
-	"defense": Color(0.2, 0.2, 0.5, 0.4),
-	"goal": Color(0.3, 0.3, 0.1, 0.4),
+	"attack": Color(0.5, 0.18, 0.15, 0.5),
+	"midfield": Color(0.18, 0.35, 0.18, 0.5),
+	"defense": Color(0.15, 0.18, 0.4, 0.5),
+	"goal": Color(0.3, 0.28, 0.12, 0.5),
 }
-const SELECTED_COLOR := Color(1.0, 0.9, 0.2, 0.8)
-const GOBLIN_COLOR := Color(0.25, 0.25, 0.3)
+const SELECTED_COLOR := Color(1.0, 0.85, 0.2, 0.9)
 
 var formation: Formation
 var interactive: bool = false
@@ -51,14 +50,19 @@ func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
 	var panel := PanelContainer.new()
 	var stylebox := StyleBoxFlat.new()
 	stylebox.bg_color = ZONE_COLORS[zone]
-	stylebox.corner_radius_top_left = 4
-	stylebox.corner_radius_top_right = 4
-	stylebox.corner_radius_bottom_left = 4
-	stylebox.corner_radius_bottom_right = 4
+	stylebox.corner_radius_top_left = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_top_right = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_bottom_left = UITheme.CORNER_RADIUS
+	stylebox.corner_radius_bottom_right = UITheme.CORNER_RADIUS
 	stylebox.content_margin_left = 8
 	stylebox.content_margin_right = 8
 	stylebox.content_margin_top = 4
 	stylebox.content_margin_bottom = 4
+	stylebox.border_width_left = 1
+	stylebox.border_width_right = 1
+	stylebox.border_width_top = 1
+	stylebox.border_width_bottom = 1
+	stylebox.border_color = Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.3)
 	panel.add_theme_stylebox_override("panel", stylebox)
 	panel.custom_minimum_size.y = 70 if zone != "goal" else 56
 
@@ -71,10 +75,14 @@ func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
 	var zone_label := Label.new()
 	zone_label.text = zone.to_upper()
 	zone_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	zone_label.add_theme_color_override("font_color", UITheme.GOLD)
+	zone_label.add_theme_font_size_override("font_size", 12)
 	header.add_child(zone_label)
 
 	var total_label := Label.new()
 	total_label.text = "Total: " + str(total_rating)
+	total_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+	total_label.add_theme_font_size_override("font_size", 12)
 	header.add_child(total_label)
 
 	var goblin_row := HBoxContainer.new()
@@ -88,7 +96,6 @@ func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
 		goblin_row.add_child(btn)
 		goblin_buttons[goblin] = btn
 
-	# If interactive, make the zone tappable to move selected goblin here
 	if interactive:
 		var click_area := Button.new()
 		click_area.flat = true
@@ -108,18 +115,30 @@ func _build_goblin_button(goblin: GoblinData, zone: String) -> Button:
 	btn.text = goblin.goblin_name.split(" ")[0] + "\n" + str(rating)
 	btn.custom_minimum_size = Vector2(90, 44)
 
+	# Style the button
+	var normal_bg := Color(0.2, 0.18, 0.15)
+	var style := UITheme.make_button_style(normal_bg, Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.4))
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_color_override("font_color", UITheme.CREAM)
+	btn.add_theme_font_size_override("font_size", 12)
+
+	var hover_style := UITheme.make_button_style(Color(0.25, 0.22, 0.18), UITheme.GOLD)
+	hover_style.content_margin_top = 4
+	hover_style.content_margin_bottom = 4
+	btn.add_theme_stylebox_override("hover", hover_style)
+
 	if interactive:
 		btn.pressed.connect(_on_goblin_clicked.bind(goblin))
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	if selected_goblin == goblin:
-		var style := StyleBoxFlat.new()
-		style.bg_color = SELECTED_COLOR
-		style.corner_radius_top_left = 4
-		style.corner_radius_top_right = 4
-		style.corner_radius_bottom_left = 4
-		style.corner_radius_bottom_right = 4
-		btn.add_theme_stylebox_override("normal", style)
+		var sel_style := UITheme.make_button_style(Color(0.4, 0.35, 0.15), SELECTED_COLOR)
+		sel_style.content_margin_top = 4
+		sel_style.content_margin_bottom = 4
+		btn.add_theme_stylebox_override("normal", sel_style)
+		btn.add_theme_color_override("font_color", UITheme.GOLD_LIGHT)
 
 	return btn
 

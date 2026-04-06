@@ -13,6 +13,11 @@ var reward_choices: Array[CardData] = []
 
 func _ready() -> void:
 	skip_btn.pressed.connect(_on_skip)
+
+	# Apply theme styling
+	UITheme.style_button(skip_btn, false)
+	UITheme.style_dim(progress_label, 14)
+
 	_show_match_result()
 	_generate_rewards()
 	_display_rewards()
@@ -26,12 +31,17 @@ func _show_match_result() -> void:
 
 	if won:
 		title_label.text = "VICTORY!"
-		title_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+		title_label.add_theme_color_override("font_color", UITheme.GREEN)
+		title_label.add_theme_font_size_override("font_size", 32)
 	else:
 		title_label.text = "DEFEAT"
-		title_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		title_label.add_theme_color_override("font_color", UITheme.RED)
+		title_label.add_theme_font_size_override("font_size", 32)
 
 	result_label.text = str(p) + " - " + str(o) + " vs " + opp_info["name"]
+	result_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+	result_label.add_theme_font_size_override("font_size", 18)
+
 	progress_label.text = "Run: " + str(RunManager.wins) + "W - " + str(RunManager.losses) + "L  |  Deck: " + str(RunManager.run_deck_cards.size()) + " cards"
 
 func _generate_rewards() -> void:

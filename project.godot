@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.4", "Mobile")
 
 GameManager="*res://scripts/autoload/game_manager.gd"
 RunManager="*res://scripts/autoload/run_manager.gd"
+UITheme="*res://scripts/autoload/ui_theme.gd"
 
 [display]
 

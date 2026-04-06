@@ -25,5 +25,5 @@ text = "Round 0/6"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-horizontal_alignment = 1
+horizontal_alignment = 2
 text = "Energy: 3/3"

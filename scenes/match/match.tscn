@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://fybwvl1ovlvh"]
+[gd_scene load_steps=8 format=3 uid="uid://fybwvl1ovlvh"]
 
 [ext_resource type="Script" uid="uid://b4qj0c0dowd8q" path="res://scenes/match/match.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://kn2o4jk5x344" path="res://scenes/ui/score_display.tscn" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" uid="uid://wnerm8hcpfba" path="res://scenes/ui/zone_display.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://44latv3my820" path="res://scenes/ui/hand_panel.tscn" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/ui/formation_display.tscn" id="6"]
+[ext_resource type="Script" path="res://scenes/ui/toast_manager.gd" id="7"]
 
 [node name="Match" type="Control"]
 layout_mode = 3
@@ -23,7 +24,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.08, 0.08, 0.12, 1)
+color = Color(0.102, 0.102, 0.141, 1)
 
 [node name="MainLayout" type="VBoxContainer" parent="."]
 layout_mode = 1
@@ -73,42 +74,58 @@ layout_mode = 2
 
 [node name="StatusRow" type="HBoxContainer" parent="MainLayout"]
 layout_mode = 2
+theme_override_constants/separation = 8
 
-[node name="PossessionLabel" type="Label" parent="MainLayout/StatusRow"]
-unique_name_in_owner = true
+[node name="StatusMargin" type="MarginContainer" parent="MainLayout/StatusRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 4
+
+[node name="PossessionLabel" type="Label" parent="MainLayout/StatusRow/StatusMargin"]
+unique_name_in_owner = true
+layout_mode = 2
 text = "Possession: 0"
 horizontal_alignment = 1
 
-[node name="EndRoundBtn" type="Button" parent="MainLayout/StatusRow"]
+[node name="BtnMargin" type="MarginContainer" parent="MainLayout/StatusRow"]
+layout_mode = 2
+theme_override_constants/margin_right = 16
+
+[node name="BtnRow" type="HBoxContainer" parent="MainLayout/StatusRow/BtnMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="EndRoundBtn" type="Button" parent="MainLayout/StatusRow/BtnMargin/BtnRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "END ROUND"
 
-[node name="HalftimeBtn" type="Button" parent="MainLayout/StatusRow"]
+[node name="HalftimeBtn" type="Button" parent="MainLayout/StatusRow/BtnMargin/BtnRow"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 text = "CONTINUE"
 
-[node name="PlayAgainBtn" type="Button" parent="MainLayout/StatusRow"]
+[node name="PlayAgainBtn" type="Button" parent="MainLayout/StatusRow/BtnMargin/BtnRow"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 text = "PLAY AGAIN"
 
-[node name="LogScroll" type="ScrollContainer" parent="MainLayout"]
+[node name="ToastMargin" type="MarginContainer" parent="MainLayout"]
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_right = 24
 
-[node name="LogLabel" type="RichTextLabel" parent="MainLayout/LogScroll"]
+[node name="ToastManager" type="VBoxContainer" parent="MainLayout/ToastMargin"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
 size_flags_vertical = 3
-bbcode_enabled = true
-scroll_following = true
+alignment = 2
+theme_override_constants/separation = 4
+script = ExtResource("7")
 
 [node name="HandScroll" type="ScrollContainer" parent="MainLayout"]
 custom_minimum_size = Vector2(0, 240)

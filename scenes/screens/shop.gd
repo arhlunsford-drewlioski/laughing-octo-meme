@@ -4,7 +4,7 @@ extends Control
 const CARD_UI_SCENE := preload("res://scenes/ui/card_ui.tscn")
 
 var shop: ShopData
-var removing: bool = false  # True when deck viewer is open for card removal
+var removing: bool = false
 
 @onready var gold_label: Label = %GoldLabel
 @onready var tier_label: Label = %TierLabel
@@ -22,6 +22,12 @@ func _ready() -> void:
 	deck_close_btn.pressed.connect(_on_deck_close)
 	RunManager.gold_changed.connect(_on_gold_changed)
 
+	# Apply theme styling
+	UITheme.style_button(remove_btn, false)
+	UITheme.style_button(continue_btn)
+	UITheme.style_button(deck_close_btn, false)
+	UITheme.style_header(shop_label, UITheme.FONT_HEADER)
+
 	shop = ShopData.new()
 	shop.generate_offerings()
 
@@ -32,6 +38,7 @@ func _ready() -> void:
 	_refresh_offerings()
 	_refresh_remove_btn()
 	tier_label.text = CardPool.get_tier_label()
+	tier_label.add_theme_color_override("font_color", UITheme.ENERGY_FILLED)
 
 func _refresh_gold() -> void:
 	gold_label.text = str(RunManager.gold) + "g"
@@ -48,6 +55,7 @@ func _refresh_offerings() -> void:
 		var empty := Label.new()
 		empty.text = "Sold out!"
 		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.add_theme_color_override("font_color", UITheme.CREAM_DIM)
 		card_row.add_child(empty)
 		return
 
@@ -69,9 +77,9 @@ func _refresh_offerings() -> void:
 		price_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		price_label.add_theme_font_size_override("font_size", 18)
 		if RunManager.gold < price:
-			price_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+			price_label.add_theme_color_override("font_color", UITheme.RED)
 		else:
-			price_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+			price_label.add_theme_color_override("font_color", UITheme.GOLD)
 		container.add_child(price_label)
 
 		card_row.add_child(container)

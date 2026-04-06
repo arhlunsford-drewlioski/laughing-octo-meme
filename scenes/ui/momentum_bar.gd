@@ -1,15 +1,12 @@
 extends Control
-## Horizontal tug-of-war bar. 11 ticks, -5 to +5. Center = neutral.
+## Gradient-fill momentum bar. Smooth tug-of-war from -5 to +5.
 
-const TICK_COUNT: int = 11
-const PLAYER_COLOR := Color(0.2, 0.6, 1.0)   # Blue
-const OPPONENT_COLOR := Color(1.0, 0.3, 0.2)  # Red
-const NEUTRAL_COLOR := Color(0.3, 0.3, 0.3)   # Gray
-const MARKER_COLOR := Color(1.0, 0.9, 0.2)    # Yellow marker
 const SLIDE_DURATION: float = 0.4
+const BAR_HEIGHT: float = 40.0
+const NOTCH_COUNT: int = 11
 
 var current_momentum: int = 0
-var display_momentum: float = 0.0  # Animated value for smooth sliding
+var display_momentum: float = 0.0
 
 func _ready() -> void:
 	GameManager.momentum_changed.connect(_on_momentum_changed)
@@ -19,37 +16,63 @@ func _on_momentum_changed(new_value: int) -> void:
 	current_momentum = new_value
 	var tween := create_tween()
 	tween.tween_property(self, "display_momentum", float(new_value), SLIDE_DURATION).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_callback(queue_redraw)
-	# Redraw every frame during tween
-	tween.set_loops(1)
 	set_process(true)
 
 func _process(_delta: float) -> void:
 	queue_redraw()
-
-func _draw() -> void:
-	var tick_width: float = size.x / TICK_COUNT
-
-	for i in TICK_COUNT:
-		var tick_value: int = i - 5  # Maps 0..10 to -5..+5
-		var rect := Rect2(i * tick_width, 0, tick_width - 2, size.y)
-
-		var color: Color
-		if tick_value < 0:
-			color = OPPONENT_COLOR.lerp(NEUTRAL_COLOR, 1.0 - absf(tick_value) / 5.0)
-		elif tick_value > 0:
-			color = PLAYER_COLOR.lerp(NEUTRAL_COLOR, 1.0 - absf(tick_value) / 5.0)
-		else:
-			color = NEUTRAL_COLOR
-
-		draw_rect(rect, color)
-
-	# Draw current position marker (uses animated display_momentum)
-	var marker_pos: float = display_momentum + 5.0  # Convert -5..+5 to 0..10
-	var marker_x: float = marker_pos * tick_width + tick_width * 0.5
-	var marker_rect := Rect2(marker_x - 6, 2, 12, size.y - 4)
-	draw_rect(marker_rect, MARKER_COLOR)
-
-	# Stop processing when animation is done
 	if absf(display_momentum - float(current_momentum)) < 0.01:
 		set_process(false)
+
+func _draw() -> void:
+	var bar_y: float = (size.y - BAR_HEIGHT) / 2.0
+	var bar_w: float = size.x
+	var corner: float = UITheme.CORNER_RADIUS
+
+	# Background track
+	var bg_rect := Rect2(0, bar_y, bar_w, BAR_HEIGHT)
+	draw_rect(bg_rect, UITheme.MOMENTUM_NEUTRAL)
+
+	# Gradient fill based on momentum position
+	# display_momentum: -5 to +5, map to 0..1
+	var ratio: float = (display_momentum + 5.0) / 10.0
+	ratio = clampf(ratio, 0.0, 1.0)
+	var center_x: float = bar_w * 0.5
+	var fill_x: float = bar_w * ratio
+
+	if fill_x > center_x:
+		# Player advantage - fill from center to right in blue
+		var fill_rect := Rect2(center_x, bar_y, fill_x - center_x, BAR_HEIGHT)
+		draw_rect(fill_rect, UITheme.MOMENTUM_PLAYER)
+	elif fill_x < center_x:
+		# Opponent advantage - fill from fill_x to center in red
+		var fill_rect := Rect2(fill_x, bar_y, center_x - fill_x, BAR_HEIGHT)
+		draw_rect(fill_rect, UITheme.MOMENTUM_OPPONENT)
+
+	# Draw notch lines
+	for i in range(1, NOTCH_COUNT):
+		var nx: float = (float(i) / float(NOTCH_COUNT)) * bar_w
+		var notch_color := Color(1, 1, 1, 0.15)
+		if i == 5:
+			notch_color = Color(1, 1, 1, 0.4)  # Center line brighter
+		draw_line(Vector2(nx, bar_y), Vector2(nx, bar_y + BAR_HEIGHT), notch_color, 1.0)
+
+	# Draw marker diamond at current position
+	var marker_x: float = fill_x
+	var marker_cy: float = bar_y + BAR_HEIGHT / 2.0
+	var marker_size: float = 10.0
+	var marker_points: PackedVector2Array = [
+		Vector2(marker_x, marker_cy - marker_size),
+		Vector2(marker_x + marker_size, marker_cy),
+		Vector2(marker_x, marker_cy + marker_size),
+		Vector2(marker_x - marker_size, marker_cy),
+	]
+	draw_colored_polygon(marker_points, UITheme.MOMENTUM_MARKER)
+
+	# Draw border around the whole bar
+	draw_rect(bg_rect, UITheme.GOLD, false, 2.0)
+
+	# Labels at edges
+	var font := ThemeDB.fallback_font
+	var font_size := 11
+	draw_string(font, Vector2(4, bar_y - 4), "OPP", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, UITheme.MOMENTUM_OPPONENT)
+	draw_string(font, Vector2(bar_w - 30, bar_y - 4), "YOU", HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size, UITheme.MOMENTUM_PLAYER)

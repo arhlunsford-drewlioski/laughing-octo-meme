@@ -18,7 +18,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.06, 0.06, 0.1, 1)
+color = Color(0.102, 0.102, 0.141, 1)
 
 [node name="MainLayout" type="VBoxContainer" parent="."]
 layout_mode = 1
@@ -67,6 +67,7 @@ layout_mode = 2
 text = "Pick a card to add to your deck:"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.706, 0.678, 0.631, 1)
 
 [node name="CardMargin" type="MarginContainer" parent="MainLayout"]
 layout_mode = 2
