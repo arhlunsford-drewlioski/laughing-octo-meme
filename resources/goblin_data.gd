@@ -5,6 +5,7 @@ extends Resource
 @export var goblin_name: String = ""
 @export var personality: String = ""
 @export var passive_description: String = ""
+@export var faction: int = 0
 
 ## Zone contribution ratings. When assigned to a zone, the goblin contributes that zone's value.
 @export var attack_rating: int = 0

@@ -1,6 +1,6 @@
 class_name CardDatabase
 extends RefCounted
-## MVP card definitions. Hardcoded starter decks for player and opponent.
+## Card definitions. Starter decks and reward pool.
 
 static func make_card(p_name: String, p_type: CardData.CardType, p_cost: int, p_possession: int, p_conversion: float, p_flavor: String, p_exhausts: bool = false) -> CardData:
 	var card := CardData.new()
@@ -74,3 +74,103 @@ static func opponent_starter_deck() -> Array[CardData]:
 	cards.append(make_card("Lucky Bounce", CardData.CardType.CHANCE, 1, 0, 0.20, "Off the post. Off a shin. In."))
 
 	return cards
+
+# -- Reward card pool --
+
+static func reward_card_pool() -> Array[CardData]:
+	## Slightly stronger cards offered as post-match rewards.
+	return [
+		make_card(
+			"Tiki-Taka (But Goblins)", CardData.CardType.TEMPO, 2, 5, 0.0,
+			"Short passes. Shorter attention spans. Somehow it works."),
+		make_card(
+			"The Nutmeg", CardData.CardType.CHANCE, 1, 0, 0.30,
+			"Through the legs. Through the dignity."),
+		make_card(
+			"Wall of Green", CardData.CardType.TEMPO, 1, 3, 0.0,
+			"A defensive shape that looks like a blob but functions like a fortress."),
+		make_card(
+			"Hoof and Hope", CardData.CardType.CHANCE, 2, 0, 0.45,
+			"Boot it forward. Hope for the best. Surprisingly effective."),
+		make_card(
+			"Tactical Foul", CardData.CardType.TEMPO, 1, 4, 0.0,
+			"It's only cheating if the ref sees it. The ref is also a goblin."),
+		make_card(
+			"Screamer from Distance", CardData.CardType.CHANCE, 2, 0, 0.35,
+			"Launched from the halfway line with zero plan and maximum conviction."),
+		make_card(
+			"Counter-Attack Rush", CardData.CardType.TEMPO, 1, 4, 0.0,
+			"They pushed up. We pushed back. Faster."),
+		make_card(
+			"Poacher's Instinct", CardData.CardType.CHANCE, 1, 0, 0.30,
+			"Right place. Right time. Wrong goblin. Goal anyway.", true),
+	]
+
+# -- Tier 2: Unlocked at Round of 16 / Quarter Finals --
+
+static func tier2_card_pool() -> Array[CardData]:
+	return [
+		make_card(
+			"Gegenpressing Goblins", CardData.CardType.TEMPO, 2, 6, 0.0,
+			"Win it back. Lose it again. Win it back harder."),
+		make_card(
+			"The Overlap Nobody Asked For", CardData.CardType.TEMPO, 1, 4, 0.0,
+			"The fullback is in the box. Who's defending? Not our problem."),
+		make_card(
+			"False Nine (Actual Goblin)", CardData.CardType.TEMPO, 2, 5, 0.0,
+			"He dropped deep. Then deeper. Then he was behind his own keeper."),
+		make_card(
+			"Controlled Fury", CardData.CardType.TEMPO, 1, 4, 0.0,
+			"Disciplined rage. An oxymoron, but it works."),
+		make_card(
+			"Curler Into the Top Bin", CardData.CardType.CHANCE, 2, 0, 0.50,
+			"Physics said no. The ball said maybe. The net said yes."),
+		make_card(
+			"One-Two Finish", CardData.CardType.CHANCE, 2, 0, 0.45,
+			"Pass. Return. Shoot. Celebrate. Simple as that."),
+		make_card(
+			"Rabona (Why Not)", CardData.CardType.CHANCE, 1, 0, 0.35,
+			"Completely unnecessary. Absolutely magnificent."),
+		make_card(
+			"Route One Thunderball", CardData.CardType.CHANCE, 2, 0, 0.40,
+			"No buildup. No passing. Just violence toward the goal.", true),
+	]
+
+# -- Tier 3: Unlocked at Semi Finals / Final --
+
+static func tier3_card_pool() -> Array[CardData]:
+	return [
+		make_card(
+			"Total Football (Total Chaos)", CardData.CardType.TEMPO, 3, 8, 0.0,
+			"Everyone plays everywhere. Nobody knows their position. Perfection."),
+		make_card(
+			"The Invincible Formation", CardData.CardType.TEMPO, 2, 6, 0.0,
+			"Unbeaten in 47 matches. Untested against goblins. Until now."),
+		make_card(
+			"Tidal Press", CardData.CardType.TEMPO, 2, 7, 0.0,
+			"They pushed up as one. The pitch shrank. The opponent panicked."),
+		make_card(
+			"Panenka Penalty", CardData.CardType.CHANCE, 2, 0, 0.55,
+			"The audacity. The disrespect. The absolute scenes."),
+		make_card(
+			"Bicycle Kick Screamer", CardData.CardType.CHANCE, 3, 0, 0.60,
+			"He went airborne. Time stopped. The crowd held its breath.", true),
+		make_card(
+			"Through Ball of Destiny", CardData.CardType.CHANCE, 2, 0, 0.50,
+			"Threaded through seven defenders. The pass that changes everything."),
+		make_card(
+			"Last Minute Winner", CardData.CardType.CHANCE, 1, 0, 0.40,
+			"Heartbreak and glory separated by a single goalpost."),
+		make_card(
+			"Goblin Galacticos", CardData.CardType.TEMPO, 2, 7, 0.0,
+			"Every goblin cost a fortune. None of them pass to each other. Still winning."),
+	]
+
+static func get_random_rewards(count: int) -> Array[CardData]:
+	## Returns count random cards from the reward pool.
+	var pool := reward_card_pool()
+	pool.shuffle()
+	var result: Array[CardData] = []
+	for i in range(mini(count, pool.size())):
+		result.append(pool[i])
+	return result

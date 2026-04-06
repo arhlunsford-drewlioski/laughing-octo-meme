@@ -1,5 +1,5 @@
 extends Control
-## Main match controller. Orchestrates the 6-round MVP match loop.
+## Main match controller. Orchestrates the 6-round match loop with run awareness.
 
 # -- UI references --
 @onready var score_display: HBoxContainer = %ScoreDisplay
@@ -39,15 +39,28 @@ func _ready() -> void:
 func _setup_match() -> void:
 	GameManager.reset_match()
 
-	# Build rosters and formations from drafted roster
+	# Build rosters and formations
 	var player_roster := GameManager.selected_roster
-	var opponent_roster := GoblinDatabase.opponent_roster()
+	var opponent_roster: Array[GoblinData]
+
+	if RunManager.run_active:
+		opponent_roster = RunManager.get_current_opponent_roster()
+		GameManager.player_faction = RunManager.player_faction
+		GameManager.opponent_faction = RunManager.get_current_opponent_faction()
+	else:
+		opponent_roster = GoblinDatabase.opponent_roster()
+		GameManager.player_faction = 0
+		GameManager.opponent_faction = 0
+
 	GameManager.player_formation = GoblinDatabase.build_default_formation(player_roster)
 	GameManager.opponent_formation = GoblinDatabase.build_default_formation(opponent_roster)
 
-	# Build decks
+	# Build decks - use persistent run deck or fresh starter
 	player_deck = Deck.new()
-	player_deck.initialize(CardDatabase.player_starter_deck())
+	if RunManager.run_active:
+		player_deck.initialize(RunManager.run_deck_cards.duplicate())
+	else:
+		player_deck.initialize(CardDatabase.player_starter_deck())
 
 	opponent_deck = Deck.new()
 	opponent_deck.initialize(CardDatabase.opponent_starter_deck())
@@ -55,6 +68,7 @@ func _setup_match() -> void:
 	engine = MatchEngine.new()
 	passives = PassiveSystem.new()
 	engine.passives = passives
+	engine.set_faction_matchup(GameManager.player_faction, GameManager.opponent_faction)
 	ai = AIOpponent.new(opponent_deck)
 
 	# Reset UI state
@@ -65,6 +79,20 @@ func _setup_match() -> void:
 
 func _start_match() -> void:
 	_log("[color=yellow]GOALS AND GOBLINS[/color]")
+
+	if RunManager.run_active:
+		var p_info := FactionSystem.get_faction_info(GameManager.player_faction)
+		var o_info := FactionSystem.get_faction_info(GameManager.opponent_faction)
+		_log(RunManager.get_stage_name() + " - " + RunManager.get_current_opponent_name())
+		_log(p_info["name"] + " vs " + o_info["name"])
+		var counter := engine.faction_counter_result
+		if counter > 0:
+			_log("[color=green]Faction advantage! Opponent suffers -10% Chance, -1 Momentum/round.[/color]")
+		elif counter < 0:
+			_log("[color=red]Faction disadvantage! You suffer -10% Chance, -1 Momentum/round.[/color]")
+		else:
+			_log("[color=gray]Neutral matchup.[/color]")
+
 	_log("6 rounds. Most goals wins. Play cards, build possession, score goals.")
 	_log("")
 	_next_round()
@@ -239,6 +267,9 @@ func _on_end_round_pressed() -> void:
 		GameManager.shift_momentum(momentum_shift)
 		var direction := "[color=green]toward you[/color]" if momentum_shift > 0 else "[color=red]toward opponent[/color]"
 		_log("Momentum shifts " + direction + " (" + ("+" if momentum_shift > 0 else "") + str(momentum_shift) + ") [Momentum: " + str(GameManager.momentum) + "]")
+		if engine.faction_counter_result != 0:
+			var side := "you" if engine.faction_counter_result > 0 else "opponent"
+			_log("[color=cyan]  Faction advantage shifts momentum toward " + side + ".[/color]")
 	else:
 		_log("Momentum holds. [Momentum: " + str(GameManager.momentum) + "]")
 
@@ -285,6 +316,15 @@ func _on_end_round_pressed() -> void:
 # -- Match end --
 
 func _end_match() -> void:
+	# Check for knockout draw - must have a winner
+	var is_knockout := RunManager.run_active and RunManager.tournament and not RunManager.tournament.is_player_in_group_stage()
+	if is_knockout and GameManager.player_goals == GameManager.opponent_goals:
+		_log("[color=yellow]========== EXTRA TIME ==========[/color]")
+		_log("Knockout match - there must be a winner! One more round.")
+		GameManager.current_round -= 1  # Allow one more round
+		_next_round()
+		return
+
 	GameManager.set_phase(GameManager.Phase.MATCH_END)
 	end_round_btn.disabled = true
 
@@ -298,10 +338,23 @@ func _end_match() -> void:
 	else:
 		_log("[color=yellow]DRAW. Nobody dies today. Probably.[/color]")
 
+	if RunManager.run_active:
+		RunManager.record_match_result(GameManager.player_goals, GameManager.opponent_goals)
+		# Simulate remaining group matches and advance tournament
+		RunManager.simulate_remaining_group_matches()
+		RunManager.advance_tournament()
+		play_again_btn.text = "CONTINUE"
+	else:
+		play_again_btn.text = "PLAY AGAIN"
+
 	play_again_btn.visible = true
 
 func _on_play_again_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/draft/draft.tscn")
+	if RunManager.run_active:
+		# Go to shop between matches (shop routes to tournament_hub)
+		get_tree().change_scene_to_file("res://scenes/screens/shop.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/draft/draft.tscn")
 
 # -- UI helpers --
 

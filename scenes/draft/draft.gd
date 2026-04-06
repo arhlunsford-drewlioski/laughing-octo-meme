@@ -14,6 +14,7 @@ var goblin_panels: Dictionary = {}  # GoblinData -> PanelContainer
 @onready var start_btn: Button = %StartMatchBtn
 @onready var count_label: Label = %CountLabel
 @onready var title_label: Label = %TitleLabel
+@onready var faction_label: Label = %FactionLabel
 
 func _ready() -> void:
 	full_roster = GoblinDatabase.full_roster()
@@ -34,7 +35,7 @@ func _build_roster_display() -> void:
 
 func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(320, 130)
+	panel.custom_minimum_size = Vector2(320, 150)
 
 	var stylebox := StyleBoxFlat.new()
 	stylebox.bg_color = UNSELECTED_COLOR
@@ -62,6 +63,14 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	name_label.text = goblin.goblin_name
 	name_label.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(name_label)
+
+	# Faction
+	var faction_info := FactionSystem.get_faction_info(goblin.faction)
+	var f_label := Label.new()
+	f_label.text = faction_info["name"] + " - " + faction_info["style"]
+	f_label.add_theme_color_override("font_color", faction_info["color"])
+	f_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(f_label)
 
 	# Personality
 	var pers_label := Label.new()
@@ -128,6 +137,20 @@ func _update_count() -> void:
 	count_label.text = str(selected.size()) + " / " + str(TEAM_SIZE) + " selected"
 	start_btn.disabled = selected.size() != TEAM_SIZE
 
+	# Update faction summary
+	if selected.size() > 0:
+		var faction := FactionSystem.get_majority_faction(selected)
+		if faction != FactionSystem.Faction.NONE:
+			var info := FactionSystem.get_faction_info(faction)
+			faction_label.text = "Team: " + info["name"] + " (" + info["style"] + ")"
+			faction_label.add_theme_color_override("font_color", info["color"])
+		else:
+			faction_label.text = "Team: Mixed (no faction bonus)"
+			faction_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+	else:
+		faction_label.text = ""
+
 func _on_start_match() -> void:
 	GameManager.selected_roster = selected.duplicate()
-	get_tree().change_scene_to_file("res://scenes/match/match.tscn")
+	RunManager.start_tournament(selected.duplicate())
+	get_tree().change_scene_to_file("res://scenes/screens/tournament_hub.tscn")
