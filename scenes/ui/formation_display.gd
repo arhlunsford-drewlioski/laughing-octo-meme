@@ -39,14 +39,12 @@ func _rebuild() -> void:
 	if formation == null:
 		return
 
-	var ratings := formation.get_zone_ratings()
-
 	for zone in ["attack", "midfield", "defense", "goal"]:
-		var row := _build_zone_row(zone, ratings[zone])
+		var row := _build_zone_row(zone)
 		add_child(row)
 		zone_rows[zone] = row
 
-func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
+func _build_zone_row(zone: String) -> PanelContainer:
 	var panel := PanelContainer.new()
 	var stylebox := StyleBoxFlat.new()
 	stylebox.bg_color = ZONE_COLORS[zone]
@@ -79,11 +77,11 @@ func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
 	zone_label.add_theme_font_size_override("font_size", 12)
 	header.add_child(zone_label)
 
-	var total_label := Label.new()
-	total_label.text = "Total: " + str(total_rating)
-	total_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-	total_label.add_theme_font_size_override("font_size", 12)
-	header.add_child(total_label)
+	var count_label := Label.new()
+	count_label.text = str(formation.get_zone(zone).size()) + " goblins"
+	count_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
+	count_label.add_theme_font_size_override("font_size", 12)
+	header.add_child(count_label)
 
 	var goblin_row := HBoxContainer.new()
 	goblin_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -109,10 +107,10 @@ func _build_zone_row(zone: String, total_rating: int) -> PanelContainer:
 
 	return panel
 
-func _build_goblin_button(goblin: GoblinData, zone: String) -> Button:
+func _build_goblin_button(goblin: GoblinData, _zone: String) -> Button:
 	var btn := Button.new()
-	var rating := goblin.get_rating_for_zone(zone)
-	btn.text = goblin.goblin_name.split(" ")[0] + "\n" + str(rating)
+	var pos_short := PositionDatabase.get_display_name(goblin.position)
+	btn.text = goblin.goblin_name.split(" ")[0] + "\n" + pos_short
 	btn.custom_minimum_size = Vector2(90, 44)
 
 	# Style the button

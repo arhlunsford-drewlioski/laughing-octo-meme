@@ -34,7 +34,3 @@ touch={
 "deadzone": 0.5,
 "events": []
 }
-
-[rendering]
-
-renderer/rendering_method="forward_plus"

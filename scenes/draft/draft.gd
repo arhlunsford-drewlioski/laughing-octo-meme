@@ -90,27 +90,27 @@ func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	stats.add_theme_constant_override("separation", 16)
 	vbox.add_child(stats)
 
-	for stat in [["ATK", goblin.attack_rating], ["MID", goblin.midfield_rating], ["DEF", goblin.defense_rating], ["GK", goblin.goal_rating]]:
+	for stat in [["SHO", goblin.shooting], ["SPD", goblin.speed], ["DEF", goblin.defense],
+			["STR", goblin.strength], ["HP", goblin.health], ["CHA", goblin.chaos]]:
 		var stat_label := Label.new()
 		stat_label.text = stat[0] + " " + str(stat[1])
 		var color := UITheme.CREAM
-		if stat[1] >= 5:
+		if stat[1] >= 7:
 			color = UITheme.GREEN
-		elif stat[1] >= 3:
+		elif stat[1] >= 4:
 			color = UITheme.GOLD
-		elif stat[1] <= 1:
+		elif stat[1] <= 2:
 			color = Color(0.6, 0.4, 0.4)
 		stat_label.add_theme_color_override("font_color", color)
 		stat_label.add_theme_font_size_override("font_size", 14)
 		stats.add_child(stat_label)
 
-	# Passive
-	var passive_label := Label.new()
-	passive_label.text = goblin.passive_description
-	passive_label.add_theme_color_override("font_color", UITheme.ENERGY_FILLED)
-	passive_label.add_theme_font_size_override("font_size", 13)
-	passive_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(passive_label)
+	# Position
+	var pos_label := Label.new()
+	pos_label.text = PositionDatabase.get_display_name(goblin.position)
+	pos_label.add_theme_color_override("font_color", UITheme.ENERGY_FILLED)
+	pos_label.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(pos_label)
 
 	# Make clickable
 	panel.gui_input.connect(_on_panel_input.bind(goblin))

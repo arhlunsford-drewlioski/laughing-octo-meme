@@ -1,0 +1,114 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/match_sim/match_sim_viewer.gd" id="1_script"]
+[ext_resource type="Script" path="res://scenes/ui/animated_pitch.gd" id="2_pitch"]
+
+[node name="MatchSimViewer" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.08, 0.11, 1)
+
+[node name="MainLayout" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+
+[node name="TopMargin" type="MarginContainer" parent="MainLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 12
+
+[node name="TopBar" type="HBoxContainer" parent="MainLayout/TopMargin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="BackBtn" type="Button" parent="MainLayout/TopMargin/TopBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "< BACK"
+
+[node name="ScoreLabel" type="Label" parent="MainLayout/TopMargin/TopBar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 24
+text = "HOME 0 - 0 AWAY"
+horizontal_alignment = 1
+
+[node name="ClockLabel" type="Label" parent="MainLayout/TopMargin/TopBar"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "0'"
+horizontal_alignment = 2
+
+[node name="PitchMargin" type="MarginContainer" parent="MainLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 4
+
+[node name="PitchContainer" type="Control" parent="MainLayout/PitchMargin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="AnimatedPitch" type="Control" parent="MainLayout/PitchMargin/PitchContainer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2_pitch")
+
+[node name="BottomMargin" type="MarginContainer" parent="MainLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 8
+
+[node name="BottomBar" type="HBoxContainer" parent="MainLayout/BottomMargin"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 140)
+theme_override_constants/separation = 12
+
+[node name="EventLog" type="RichTextLabel" parent="MainLayout/BottomMargin/BottomBar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+bbcode_enabled = true
+theme_override_colors/default_color = Color(0.75, 0.75, 0.75, 1)
+theme_override_font_sizes/normal_font_size = 13
+scroll_following = true
+
+[node name="SpeedBtn" type="Button" parent="MainLayout/BottomMargin/BottomBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(70, 36)
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_font_sizes/font_size = 16
+text = "1x"

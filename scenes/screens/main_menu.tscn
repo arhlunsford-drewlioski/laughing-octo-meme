@@ -71,3 +71,27 @@ layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 18
 text = "AUTO TEST"
+
+[node name="RealtimeTestBtn" type="Button" parent="VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 50)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 18
+text = "REALTIME TEST"
+
+[node name="WatchMatchBtn" type="Button" parent="VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 50)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 18
+text = "WATCH MATCH"
+
+[node name="SimTestBtn" type="Button" parent="VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 50)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 18
+text = "SIM TEST (headless)"

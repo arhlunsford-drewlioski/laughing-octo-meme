@@ -208,9 +208,9 @@ func _draw_goblin_token(pos: Vector2, goblin: GoblinData, zone: String, is_playe
 	# Token circle border
 	draw_arc(pos, TOKEN_RADIUS, 0, TAU, 32, Color(border_color.r, border_color.g, border_color.b, alpha), border_w)
 
-	# Goblin name (shortened) + rating
+	# Goblin name (shortened) + position
 	var font: Font = ThemeDB.fallback_font
-	var rating: int = goblin.get_rating_for_zone(zone)
+	var pos_short: String = PositionDatabase.get_display_name(goblin.position).left(3).to_upper()
 	var name_short: String = goblin.goblin_name.split(" ")[0]
 	if name_short.length() > 6:
 		name_short = name_short.left(5) + "."
@@ -222,31 +222,9 @@ func _draw_goblin_token(pos: Vector2, goblin: GoblinData, zone: String, is_playe
 	var name_size := font.get_string_size(name_short, HORIZONTAL_ALIGNMENT_CENTER, -1, TOKEN_FONT_SIZE)
 	draw_string(font, pos + Vector2(-name_size.x * 0.5, -2), name_short, HORIZONTAL_ALIGNMENT_LEFT, -1, TOKEN_FONT_SIZE, text_color)
 
-	# Rating below center - show base + buff
-	var buff_map: Dictionary = player_zone_buffs if is_player else opponent_zone_buffs
-	var buff_val: int = buff_map.get(zone, 0)
-
-	if buff_val > 0:
-		# Show "base+buff" in green to indicate buffed
-		var rating_str := str(rating) + "+" + str(buff_val)
-		var buffed_color: Color = Color(0.3, 1.0, 0.3, alpha)
-		var rating_size := font.get_string_size(rating_str, HORIZONTAL_ALIGNMENT_CENTER, -1, TOKEN_FONT_SIZE + 2)
-		draw_string(font, pos + Vector2(-rating_size.x * 0.5, 12), rating_str, HORIZONTAL_ALIGNMENT_LEFT, -1, TOKEN_FONT_SIZE + 2, buffed_color)
-
-		# Draw a green glow ring to show buffed state
-		draw_arc(pos, TOKEN_RADIUS + 3, 0, TAU, 32, Color(0.3, 1.0, 0.3, 0.4 * alpha), 2.0)
-	elif buff_val < 0:
-		# Show debuffed in red
-		var rating_str := str(rating) + str(buff_val)
-		var debuff_color: Color = Color(1.0, 0.3, 0.3, alpha)
-		var rating_size := font.get_string_size(rating_str, HORIZONTAL_ALIGNMENT_CENTER, -1, TOKEN_FONT_SIZE + 2)
-		draw_string(font, pos + Vector2(-rating_size.x * 0.5, 12), rating_str, HORIZONTAL_ALIGNMENT_LEFT, -1, TOKEN_FONT_SIZE + 2, debuff_color)
-
-		draw_arc(pos, TOKEN_RADIUS + 3, 0, TAU, 32, Color(1.0, 0.3, 0.3, 0.4 * alpha), 2.0)
-	else:
-		var rating_str := str(rating)
-		var rating_size := font.get_string_size(rating_str, HORIZONTAL_ALIGNMENT_CENTER, -1, TOKEN_FONT_SIZE + 2)
-		draw_string(font, pos + Vector2(-rating_size.x * 0.5, 12), rating_str, HORIZONTAL_ALIGNMENT_LEFT, -1, TOKEN_FONT_SIZE + 2, rating_color)
+	# Position label below center
+	var pos_size := font.get_string_size(pos_short, HORIZONTAL_ALIGNMENT_CENTER, -1, TOKEN_FONT_SIZE + 2)
+	draw_string(font, pos + Vector2(-pos_size.x * 0.5, 12), pos_short, HORIZONTAL_ALIGNMENT_LEFT, -1, TOKEN_FONT_SIZE + 2, rating_color)
 
 func _gui_input(event: InputEvent) -> void:
 	if not interactive:

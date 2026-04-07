@@ -1,6 +1,6 @@
 class_name Formation
 extends RefCounted
-## Manages goblin zone assignments for one side. 6 total: up to 3 per outfield zone, 1 in goal.
+## Manages goblin positions for one side. 6 total: position-based assignment using PositionDatabase zones.
 
 const MAX_OUTFIELD_PER_ZONE: int = 3
 const MAX_GOAL: int = 1
@@ -28,14 +28,20 @@ func max_for_zone(zone: String) -> int:
 func total_count() -> int:
 	return attack.size() + midfield.size() + defense.size() + goal.size()
 
-func assign_goblin(goblin: GoblinData, zone: String) -> bool:
+## Assign a goblin to the zone matching their position (from PositionDatabase).
+func assign_goblin(goblin: GoblinData) -> bool:
+	var zone := PositionDatabase.get_zone(goblin.position)
+	return assign_goblin_to_zone(goblin, zone)
+
+## Assign a goblin to a specific zone (override their natural position zone).
+func assign_goblin_to_zone(goblin: GoblinData, zone: String) -> bool:
 	var arr := get_zone(zone)
 	if arr.size() >= max_for_zone(zone):
 		return false
 	if total_count() >= TEAM_SIZE:
 		return false
 	if find_zone(goblin) != "":
-		return false  # Already assigned somewhere
+		return false
 	arr.append(goblin)
 	return true
 
@@ -67,17 +73,14 @@ func find_zone(goblin: GoblinData) -> String:
 			return zone
 	return ""
 
-func get_zone_ratings() -> Dictionary:
-	var ratings := { "attack": 0, "midfield": 0, "defense": 0, "goal": 0 }
-	for goblin in attack:
-		ratings["attack"] += goblin.get_rating_for_zone("attack")
-	for goblin in midfield:
-		ratings["midfield"] += goblin.get_rating_for_zone("midfield")
-	for goblin in defense:
-		ratings["defense"] += goblin.get_rating_for_zone("defense")
-	for goblin in goal:
-		ratings["goal"] += goblin.get_rating_for_zone("goal")
-	return ratings
+func get_zone_strength(zone: String) -> Dictionary:
+	var totals := {}
+	for key in GoblinData.STAT_KEYS:
+		totals[key] = 0
+	for goblin in get_zone(zone):
+		for key in GoblinData.STAT_KEYS:
+			totals[key] += goblin.get_stat(key)
+	return totals
 
 func get_keeper() -> GoblinData:
 	if goal.is_empty():
@@ -101,4 +104,12 @@ func get_all_outfield() -> Array[GoblinData]:
 	all.append_array(attack)
 	all.append_array(midfield)
 	all.append_array(defense)
+	return all
+
+func get_all() -> Array[GoblinData]:
+	var all: Array[GoblinData] = []
+	all.append_array(attack)
+	all.append_array(midfield)
+	all.append_array(defense)
+	all.append_array(goal)
 	return all
