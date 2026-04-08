@@ -10,17 +10,28 @@ const TICKS_PER_SECOND: float = 10.0
 const TICK_DELTA: float = 1.0 / TICKS_PER_SECOND  # 0.1s real time
 const MATCH_DURATION: float = 90.0  # match minutes
 const MINUTES_PER_TICK: float = 0.14  # slower match clock so build-up reads on screen
-const MOVEMENT_SPEED: float = 0.0115  # base jog speed
-const SPRINT_MULTIPLIER: float = 1.26  # sprinting
-const PASS_SPEED: float = 1.10  # calmer pass travel speed
+const MOVEMENT_SPEED: float = 0.0095  # base jog speed (calmer)
+const SPRINT_MULTIPLIER: float = 1.20  # sprinting
+const PASS_SPEED: float = 1.30  # faster passes for better flow
 const SHOT_SPEED: float = 1.70
-const LOOSE_BALL_RANGE: float = 0.12  # auto-claim if ball rolls near player
+const LOOSE_BALL_RANGE: float = 0.15  # auto-claim if ball rolls near player
 const TACKLE_RANGE: float = 0.055  # tight - must be very close
 const SHOT_RANGE: float = 0.30
-const PASS_RECEIVE_RADIUS: float = 0.06
+const PASS_RECEIVE_RADIUS: float = 0.08
 const PASS_INTERCEPT_RADIUS: float = 0.05
 const PASS_SEGMENT_RADIUS: float = 0.035
 const RECEIVE_LOOKAHEAD: float = 0.18
+const KICKOFF_HOLD_DURATION: int = 10  # 1.0s hold before kickoff pass
+const GOAL_CELEBRATION_TICKS: int = 20  # 2.0s celebration freeze after goal
+
+# Velocity / momentum
+const ACCEL_RATE: float = 0.45          # lerp toward max speed per tick (smoother ramp-up)
+const DECEL_RATE: float = 0.40          # lerp for braking on direction change
+const STEER_RATE: float = 0.30          # lerp for direction change per tick (less twitchy)
+const DIRECTION_CHANGE_THRESHOLD: float = 0.15  # dot product < this = big turn (~80 degrees)
+const COMMIT_TICKS_ON_TURN: int = 4     # ticks of reduced speed after major direction change
+const COMMIT_TICKS_CHASE: int = 3       # ticks a loose ball chaser is locked to direction
+const COMMIT_SPEED_FACTOR: float = 0.55 # speed multiplier during commitment
 
 enum TeamPhase {
 	BUILD_UP,
@@ -37,13 +48,14 @@ const URGENT_SMOOTH: float = 1.0   # chase/tackle/press - snap
 const CARRIER_SMOOTH: float = 1.0  # carrier - snap
 
 # Arrival behavior
-const SLOWDOWN_RADIUS: float = 0.03
-const ARRIVAL_RADIUS: float = 0.005
+const SLOWDOWN_RADIUS: float = 0.05
+const ARRIVAL_RADIUS: float = 0.008
 const MIN_DRIFT_SPEED: float = 0.0  # no drift - stop cleanly at target
+const IDEAL_DEAD_ZONE: float = 0.020  # ignore ideal position changes smaller than this
 
 # Separation
-const SEPARATION_DIST: float = 0.06
-const SEPARATION_FORCE: float = 0.03
+const SEPARATION_DIST: float = 0.055
+const SEPARATION_FORCE: float = 0.02
 
 # ── Home positions (normalized) ─────────────────────────────────────────────
 
@@ -92,6 +104,13 @@ var spells_locked: bool = false
 var mana: Array[float] = [3.0, 3.0]
 var match_started: bool = false
 var match_over: bool = false
+var _kickoff_hold_ticks: int = 0
+var _kickoff_kicker: GoblinData = null
+var _kickoff_outlet: GoblinData = null
+var _celebration_ticks: int = 0
+var _celebration_scorer: GoblinData = null
+var _celebration_corner: Vector2 = Vector2.ZERO
+var _celebration_kicking_team: int = -1  # which team kicks off after celebration
 
 # Per-goblin runtime state
 var goblin_states: Dictionary = {}
@@ -114,8 +133,30 @@ var _away_phase: TeamPhase = TeamPhase.DEFENSIVE_BLOCK
 var _action_targets: Dictionary = {}
 # Persistent carrier target - survives cooldown so carrier keeps moving
 var _carrier_target: Dictionary = {}  # {"x": float, "y": float}
+# Persistent move targets - survive between AI decisions so goblins don't drift
+var _move_targets: Dictionary = {}  # GoblinData -> {"x": float, "y": float}
 # Ball intent while travelling: pass/cross metadata used for live contests
 var _ball_intent: Dictionary = {}
+
+# Spells (one-time use per match, home = player)
+var fireball_available: Array[bool] = [true, false]
+var haste_available: Array[bool] = [true, false]
+var multiball_available: Array[bool] = [true, false]
+
+# Haste tracking
+var _haste_ticks: Array[int] = [0, 0]  # remaining ticks per team
+var _haste_targets: Array = [[], []]  # goblins with active haste buffs per team
+const HASTE_DURATION_TICKS: int = 100  # 10 seconds at 10 ticks/sec
+const HASTE_SPEED_BOOST: int = 3
+
+# Multiball tracking
+var _extra_balls: Array = []  # [{ball: Ball, ticks_remaining: int}]
+const MULTIBALL_COUNT: int = 3
+const MULTIBALL_LIFETIME_TICKS: int = 100  # 10 seconds
+const MULTIBALL_SPEED: float = 0.6
+
+# Deferred removals (can't erase from goblin_states mid-iteration)
+var _pending_removals: Array[GoblinData] = []
 
 # Debug counters
 var _debug_actions: Dictionary = {}
@@ -144,9 +185,23 @@ func start_match(home: Formation, away: Formation) -> Dictionary:
 	_active_runs.clear()
 	_action_targets.clear()
 	_carrier_target.clear()
+	_move_targets.clear()
 	_ball_intent.clear()
+	_pending_removals.clear()
+	fireball_available = [true, false]
+	haste_available = [true, false]
+	multiball_available = [true, false]
+	_haste_ticks = [0, 0]
+	_haste_targets = [[], []]
+	_extra_balls.clear()
 	_home_phase = TeamPhase.BUILD_UP
 	_away_phase = TeamPhase.DEFENSIVE_BLOCK
+	_kickoff_hold_ticks = 0
+	_kickoff_kicker = null
+	_kickoff_outlet = null
+	_celebration_ticks = 0
+	_celebration_scorer = null
+	_celebration_kicking_team = -1
 
 	_init_goblin_positions(home, true)
 	_init_goblin_positions(away, false)
@@ -175,10 +230,10 @@ func _init_goblin_positions(formation: Formation, is_home: bool) -> void:
 				"ideal_y": spawn.y,
 				"roam_x": spawn.x,
 				"roam_y": spawn.y,
-				"roam_timer": randf_range(0.4, 1.4),
+				"roam_timer": randf_range(1.0, 2.5),
 				"support_x": spawn.x,
 				"support_y": spawn.y,
-				"support_timer": randf_range(0.2, 0.8),
+				"support_timer": randf_range(0.8, 1.8),
 				"ball_control_time": 0.0,
 				"settle_time": 0.0,
 				"cooldown": 0.0,
@@ -187,6 +242,9 @@ func _init_goblin_positions(formation: Formation, is_home: bool) -> void:
 				"action": GoblinAI.Action.IDLE,
 				"facing": 1.0 if is_home else -1.0,
 				"is_home": is_home,
+				"vel_x": 0.0,
+				"vel_y": 0.0,
+				"commit_ticks": 0,
 			}
 
 func _kickoff_spawn_position(goblin: GoblinData, zone_name: String, is_home: bool,
@@ -241,10 +299,10 @@ func _apply_kickoff_reset(formation: Formation, is_home: bool) -> void:
 			gs["ideal_y"] = spawn.y
 			gs["roam_x"] = spawn.x
 			gs["roam_y"] = spawn.y
-			gs["roam_timer"] = randf_range(0.7, 1.5)
+			gs["roam_timer"] = randf_range(1.5, 3.0)
 			gs["support_x"] = spawn.x
 			gs["support_y"] = spawn.y
-			gs["support_timer"] = randf_range(0.35, 0.9)
+			gs["support_timer"] = randf_range(1.0, 2.0)
 			gs["ball_control_time"] = 0.0
 			gs["settle_time"] = 0.0
 			gs["cooldown"] = 0.5
@@ -252,6 +310,9 @@ func _apply_kickoff_reset(formation: Formation, is_home: bool) -> void:
 			gs["sprinting"] = false
 			gs["action"] = GoblinAI.Action.IDLE
 			gs["facing"] = 1.0 if is_home else -1.0
+			gs["vel_x"] = 0.0
+			gs["vel_y"] = 0.0
+			gs["commit_ticks"] = 0
 
 # ── Tick ────────────────────────────────────────────────────────────────────
 
@@ -268,6 +329,34 @@ func tick() -> Dictionary:
 		clock = MATCH_DURATION
 		match_over = true
 		_tick_events.append({"type": "match_end", "score": score.duplicate()})
+		return _build_snapshot()
+
+	# 1a. Goal celebration - scorer runs to corner, everyone else freezes
+	if _celebration_ticks > 0:
+		_celebration_ticks -= 1
+		# Move scorer toward corner flag
+		if _celebration_scorer and goblin_states.has(_celebration_scorer):
+			var sgs: Dictionary = goblin_states[_celebration_scorer]
+			var sx: float = _gf(sgs, "x")
+			var sy: float = _gf(sgs, "y")
+			sgs["x"] = lerpf(sx, _celebration_corner.x, 0.15)
+			sgs["y"] = lerpf(sy, _celebration_corner.y, 0.15)
+		if _celebration_ticks == 0:
+			# Celebration over - now do kickoff reset
+			_reset_positions_for_kickoff(_celebration_kicking_team)
+			_celebration_scorer = null
+			_celebration_kicking_team = -1
+		return _build_snapshot()
+
+	# 1b. Kickoff hold - freeze all goblins, count down, then auto-pass
+	if _kickoff_hold_ticks > 0:
+		_kickoff_hold_ticks -= 1
+		if _kickoff_hold_ticks == 0:
+			_execute_kickoff_pass()
+		if ball.owner and goblin_states.has(ball.owner):
+			var ogs: Dictionary = goblin_states[ball.owner]
+			ball.x = _gf(ogs, "x")
+			ball.y = _gf(ogs, "y")
 		return _build_snapshot()
 
 	# 2. Update ball
@@ -295,6 +384,9 @@ func tick() -> Dictionary:
 			if last_action == GoblinAI.Action.IDLE or last_action == GoblinAI.Action.MOVE_TO_POSITION:
 				gs["decide_wait"] = 0.2  # re-evaluate every 0.2s
 
+	# 5b. Process deferred removals (goblins killed during tackles/spells)
+	_process_pending_removals()
+
 	# 6. Update ideal positions for ALL goblins (smooth targets)
 	_update_ideal_positions()
 
@@ -307,6 +399,12 @@ func tick() -> Dictionary:
 		owner_gs["ball_control_time"] = _gf(owner_gs, "ball_control_time") + TICK_DELTA
 		ball.x = _gf(owner_gs, "x")
 		ball.y = _gf(owner_gs, "y")
+
+	# 9. Tick haste expiry
+	_tick_haste()
+
+	# 10. Tick extra balls (multiball)
+	_tick_extra_balls()
 
 	return _build_snapshot()
 
@@ -339,7 +437,7 @@ func _check_loose_ball_claims() -> void:
 	if nearest:
 		_clear_ball_intent()
 		_give_ball_control(nearest, ball.x, ball.y, true)
-		_tick_events.append({"type": "ball_won", "goblin": nearest.goblin_name})
+		_tick_events.append({"type": "ball_recovery", "goblin": nearest.goblin_name})
 
 func _resolve_travelling_ball(prev_x: float, prev_y: float) -> bool:
 	var same_team_best: GoblinData = null
@@ -373,6 +471,7 @@ func _resolve_travelling_ball(prev_x: float, prev_y: float) -> bool:
 
 	var winner: GoblinData = null
 	var intercepted: bool = false
+	var is_aerial_duel: bool = ball.aerial and same_team_best != null and other_team_best != null and other_team_score > -999.0 and same_team_score > -999.0
 	if other_team_best and other_team_score > same_team_score + 0.35:
 		winner = other_team_best
 		intercepted = true
@@ -384,6 +483,33 @@ func _resolve_travelling_ball(prev_x: float, prev_y: float) -> bool:
 
 	if winner == null:
 		return false
+
+	# Emit aerial duel when both teams contested an aerial ball
+	if is_aerial_duel:
+		var loser: GoblinData = other_team_best if not intercepted else same_team_best
+		if loser:
+			_tick_events.append({
+				"type": "aerial",
+				"winner": winner.goblin_name,
+				"loser": loser.goblin_name,
+			})
+
+	# Keeper winning an aerial cross: claim or punch
+	var intent_type: String = String(_ball_intent.get("type", ""))
+	if winner.position == "keeper" and ball.aerial and (intent_type == "cross" or intent_type == "clear"):
+		_clear_ball_intent()
+		if randf() < 0.6:
+			# Clean claim
+			_tick_events.append({"type": "keeper_claim", "keeper": winner.goblin_name})
+			_give_ball_control(winner, ball.x, ball.y, true)
+		else:
+			# Punch clear
+			_tick_events.append({"type": "keeper_punch", "keeper": winner.goblin_name})
+			var punch_dir: float = 1.0 if goblin_states.has(winner) and _gb(goblin_states[winner], "is_home") else -1.0
+			ball.set_kicked(ball.x, ball.y, ball.x + punch_dir * 0.15, ball.y + randf_range(-0.10, 0.10),
+					PASS_SPEED * 1.1, Ball.GROUND_FRICTION, false)
+			_set_ball_intent("punch", winner, null, ball.x + punch_dir * 0.15, ball.y, _gb(goblin_states[winner], "is_home") if goblin_states.has(winner) else true)
+		return true
 
 	if intercepted:
 		_clear_ball_intent()
@@ -441,19 +567,21 @@ func _roll_first_touch(goblin: GoblinData) -> bool:
 	control += float(goblin.get_stat("strength")) * 0.22
 	var speed_pressure: float = clampf(ball.get_speed() * 0.08, 0.0, 0.12)
 	var chaos_penalty: float = float(goblin.get_stat("chaos")) * 0.004
-	var miscontrol: float = clampf(0.24 - control * 0.018 + speed_pressure + chaos_penalty, 0.03, 0.22)
+	var miscontrol: float = clampf(0.16 - control * 0.018 + speed_pressure + chaos_penalty, 0.02, 0.15)
 	return randf() < miscontrol
 
 func _control_settle_time(goblin: GoblinData) -> float:
 	var control: float = float(goblin.get_stat("defense")) * 0.55 + float(goblin.get_stat("strength")) * 0.45
-	var settle: float = 0.38 - control * 0.018 + float(goblin.get_stat("chaos")) * 0.006
+	var settle: float = 0.22 - control * 0.018 + float(goblin.get_stat("chaos")) * 0.004
 	if goblin.position == "playmaker" or goblin.position == "trequartista":
 		settle -= 0.04
 	elif goblin.position == "target_man" or goblin.position == "false_nine":
-		settle += 0.03
-	return clampf(settle, 0.12, 0.34)
+		settle += 0.02
+	return clampf(settle, 0.06, 0.20)
 
 func _give_ball_control(goblin: GoblinData, x: float, y: float, with_settle: bool = true) -> void:
+	# Clear stale carrier target so new carrier doesn't inherit old dribble direction
+	_carrier_target.clear()
 	if not goblin_states.has(goblin):
 		ball.set_controlled(goblin, x, y)
 		return
@@ -464,7 +592,7 @@ func _give_ball_control(goblin: GoblinData, x: float, y: float, with_settle: boo
 	if with_settle:
 		settle_time = _control_settle_time(goblin)
 	gs["settle_time"] = settle_time
-	gs["decide_wait"] = maxf(_gf(gs, "decide_wait"), _gf(gs, "settle_time") * 0.7)
+	gs["decide_wait"] = maxf(_gf(gs, "decide_wait"), _gf(gs, "settle_time") * 0.5)
 
 func _get_loose_ball_chase_target(goblin: GoblinData) -> Vector2:
 	var gs: Dictionary = goblin_states[goblin]
@@ -521,10 +649,18 @@ func _process_goblin_action(goblin: GoblinData) -> void:
 		GoblinAI.Action.INTERCEPT, GoblinAI.Action.CHASE_BALL:
 			var loose_target: Vector2 = _get_loose_ball_chase_target(goblin)
 			_set_action_target(goblin, loose_target.x, loose_target.y)
+			# Lock chase direction for a few ticks to prevent twitch-corrections
+			if int(gs.get("commit_ticks", 0)) <= 0:
+				gs["commit_ticks"] = COMMIT_TICKS_CHASE
 		GoblinAI.Action.MOVE_TO_POSITION:
 			_set_action_target(goblin, decision.target_x, decision.target_y)
+			# Persist move target so it survives between AI re-evaluations
+			_move_targets[goblin] = {"x": decision.target_x, "y": decision.target_y}
+		GoblinAI.Action.IDLE:
+			# Clear persistent target when idle (own team has ball)
+			_move_targets.erase(goblin)
 		_:
-			pass
+			_move_targets.erase(goblin)
 
 func _execute_pass(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	if ball.owner != goblin:
@@ -567,11 +703,16 @@ func _execute_pass(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	elif decision.action == GoblinAI.Action.HOLD_UP:
 		kick_speed = PASS_SPEED * 0.9
 
-	ball.set_kicked(_gf(gs, "x"), _gf(gs, "y"), tx, ty, kick_speed, kick_friction)
+	var kick_dist: float = _dist(_gf(gs, "x"), _gf(gs, "y"), tx, ty)
+	var is_aerial: bool = decision.action == GoblinAI.Action.CLEAR or kick_dist > 0.30
+	ball.set_kicked(_gf(gs, "x"), _gf(gs, "y"), tx, ty, kick_speed, kick_friction, is_aerial)
 	_set_ball_intent(kick_kind, goblin, decision.target_goblin, tx, ty, is_home)
-	gs["cooldown"] = 0.5
+	gs["cooldown"] = 0.3
 	var to_name: String = decision.target_goblin.goblin_name if decision.target_goblin else ""
-	_tick_events.append({"type": "pass", "from": goblin.goblin_name, "to": to_name})
+	if decision.action == GoblinAI.Action.CLEAR:
+		_tick_events.append({"type": "clearance", "goblin": goblin.goblin_name})
+	else:
+		_tick_events.append({"type": "pass", "from": goblin.goblin_name, "to": to_name})
 
 func _execute_shot(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	if ball.owner != goblin:
@@ -593,8 +734,8 @@ func _execute_shot(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	var keeper: GoblinData = opp_formation.get_keeper()
 	var keeper_save: float = 0.0
 	if keeper:
-		keeper_save = float(keeper.get_stat("strength") + keeper.get_stat("defense")) * 0.65
-		keeper_save += randf_range(-1.5, 1.5)
+		keeper_save = float(keeper.get_stat("strength") + keeper.get_stat("defense")) * 0.45
+		keeper_save += randf_range(-2.0, 2.0)
 
 	var opp_goblins := opp_formation.get_all()
 	for opp in opp_goblins:
@@ -603,7 +744,7 @@ func _execute_shot(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 		var opp_gs: Dictionary = goblin_states[opp]
 		var dist: float = _dist(_gf(opp_gs, "x"), _gf(opp_gs, "y"), _gf(gs, "x"), _gf(gs, "y"))
 		if dist < 0.12 and opp != keeper:
-			var block_chance: float = (opp.get_stat("defense") + opp.get_stat("strength")) * 0.02
+			var block_chance: float = (opp.get_stat("defense") + opp.get_stat("strength")) * 0.012
 			if randf() < block_chance:
 				_tick_events.append({"type": "block", "goblin": opp.goblin_name, "shooter": goblin.goblin_name})
 				ball.set_loose(_gf(opp_gs, "x") + randf_range(-0.05, 0.05), _gf(opp_gs, "y") + randf_range(-0.05, 0.05))
@@ -613,24 +754,46 @@ func _execute_shot(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	_tick_events.append({"type": "shot", "goblin": goblin.goblin_name, "power": shot_power, "accuracy": shot_accuracy})
 	gs["cooldown"] = 0.75
 
-	if shot_accuracy < 7.0 and randf() < (7.0 - shot_accuracy) * 0.15:
-		_tick_events.append({"type": "miss", "goblin": goblin.goblin_name})
+	if shot_accuracy < 5.0 and randf() < (5.0 - shot_accuracy) * 0.12:
+		# Off target: miss wide/high or hit the post
+		if randf() < 0.25:
+			_tick_events.append({"type": "post", "goblin": goblin.goblin_name})
+			_tick_events.append({"type": "corner_awarded", "team": "home" if is_home else "away"})
+		else:
+			_tick_events.append({"type": "miss", "goblin": goblin.goblin_name})
+			# Wide miss = goal kick; high miss = out
+			if randf() < 0.5:
+				_tick_events.append({"type": "out", "reason": "goal_kick"})
 		ball.set_loose(goal_x, randf_range(0.3, 0.7))
 	elif shot_power > keeper_save:
 		var team_idx: int = 0 if is_home else 1
 		score[team_idx] += 1
 		_tick_events.append({"type": "goal", "goblin": goblin.goblin_name, "score": score.duplicate()})
 		_clear_ball_intent()
-		ball.set_dead(0.5, 0.5)
-		_reset_positions_for_kickoff(1 - team_idx)
+		ball.set_dead(goal_x, 0.5)
+		# Start celebration phase instead of immediate kickoff
+		_celebration_ticks = GOAL_CELEBRATION_TICKS
+		_celebration_scorer = goblin
+		_celebration_kicking_team = 1 - team_idx
+		# Move scorer toward corner flag
+		var corner_y: float = 0.05 if _gf(gs, "y") < 0.5 else 0.95
+		_celebration_corner = Vector2(goal_x, corner_y)
 	else:
 		var keeper_name: String = keeper.goblin_name if keeper else "unknown"
 		_tick_events.append({"type": "save", "keeper": keeper_name, "shooter": goblin.goblin_name})
-		if randf() < 0.35:
+		var save_roll: float = randf()
+		if save_roll < 0.25:
+			# Parried out for a corner
+			_tick_events.append({"type": "corner_awarded", "team": "home" if is_home else "away"})
+			ball.set_loose(goal_x + (0.08 if not is_home else -0.08), randf_range(0.35, 0.65))
+		elif save_roll < 0.45:
+			# Spilled / parried into play
 			ball.set_loose(goal_x + (0.08 if not is_home else -0.08), randf_range(0.35, 0.65))
 		else:
+			# Clean catch
 			if keeper and goblin_states.has(keeper):
 				var kgs: Dictionary = goblin_states[keeper]
+				_tick_events.append({"type": "keeper_claim", "keeper": keeper_name})
 				_give_ball_control(keeper, _gf(kgs, "x"), _gf(kgs, "y"), true)
 			else:
 				ball.set_loose(goal_x + (0.08 if not is_home else -0.08), 0.5)
@@ -641,9 +804,9 @@ func _execute_cross(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	var gs: Dictionary = goblin_states[goblin]
 	var is_home: bool = _gb(gs, "is_home")
 	ball.set_kicked(_gf(gs, "x"), _gf(gs, "y"), decision.target_x, decision.target_y,
-			PASS_SPEED * 1.05, Ball.THROUGH_BALL_FRICTION)
+			PASS_SPEED * 1.05, Ball.THROUGH_BALL_FRICTION, true)  # crosses are always aerial
 	_set_ball_intent("cross", goblin, decision.target_goblin, decision.target_x, decision.target_y, is_home)
-	gs["cooldown"] = 0.5
+	gs["cooldown"] = 0.3
 	_tick_events.append({"type": "cross", "goblin": goblin.goblin_name})
 
 func _execute_dribble(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
@@ -652,7 +815,7 @@ func _execute_dribble(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	_set_action_target(goblin, decision.target_x, decision.target_y)
 
 	var gs: Dictionary = goblin_states[goblin]
-	gs["cooldown"] = 0.4  # carry the ball for a readable beat before the next choice
+	gs["cooldown"] = 0.3  # carry the ball for a readable beat
 
 	var is_home: bool = _gb(gs, "is_home")
 	var opp_formation: Formation = away_formation if is_home else home_formation
@@ -671,7 +834,12 @@ func _execute_dribble(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 				ball.set_loose(_gf(gs, "x"), _gf(gs, "y"))
 				_tick_events.append({"type": "dispossessed", "goblin": goblin.goblin_name, "by": opp.goblin_name})
 				opp_gs["cooldown"] = 0.3
+				# Small chance of hurting the dribbler during the challenge
+				_roll_tackle_injury(opp, goblin, false)
 			else:
+				# Dribbler beats the defender
+				_tick_events.append({"type": "take_on", "goblin": goblin.goblin_name, "beaten": opp.goblin_name})
+				_tick_events.append({"type": "challenge", "goblin": opp.goblin_name, "by": goblin.goblin_name})
 				opp_gs["cooldown"] = 0.5
 			break
 
@@ -700,13 +868,247 @@ func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 		_tick_events.append({"type": "tackle", "goblin": goblin.goblin_name, "victim": victim.goblin_name})
 		_clear_ball_intent()
 		ball.set_loose(_gf(owner_gs, "x"), _gf(owner_gs, "y"))
+		var was_foul: bool = false
 		var foul_chance: float = goblin.get_stat("chaos") * 0.02 + (0.1 if goblin.position == "enforcer" else 0.0)
 		if randf() < foul_chance:
+			was_foul = true
 			_tick_events.append({"type": "foul", "goblin": goblin.goblin_name, "victim": victim.goblin_name})
-			ball.set_loose(_gf(owner_gs, "x"), _gf(owner_gs, "y"))
+		# Goblin violence: chance of injury/death
+		_roll_tackle_injury(goblin, victim, was_foul)
 	else:
 		_tick_events.append({"type": "tackle_failed", "goblin": goblin.goblin_name})
 		gs["cooldown"] = 0.75
+
+# ── Goblin Violence (Injury / Death / Removal) ──────────────────────────
+
+func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool) -> void:
+	## After a successful tackle or foul, roll for injury/death.
+	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.015
+	if was_foul:
+		injury_chance += 0.10
+	if tackler.position == "enforcer":
+		injury_chance += 0.05
+	if randf() >= injury_chance:
+		return
+
+	var severity_roll: float = randf() + float(tackler.get_stat("strength")) * 0.02
+	var severity: int  # GoblinData.InjuryState
+	if severity_roll >= 0.95:
+		severity = GoblinData.InjuryState.DEAD
+	elif severity_roll >= 0.70:
+		severity = GoblinData.InjuryState.MAJOR
+	else:
+		severity = GoblinData.InjuryState.MINOR
+
+	victim.apply_injury(severity)
+	var severity_name: String
+	match severity:
+		GoblinData.InjuryState.MINOR:
+			severity_name = "minor"
+		GoblinData.InjuryState.MAJOR:
+			severity_name = "major"
+		GoblinData.InjuryState.DEAD:
+			severity_name = "dead"
+		_:
+			severity_name = "minor"
+
+	_tick_events.append({"type": "injury", "goblin": victim.goblin_name, "severity": severity_name, "by": tackler.goblin_name})
+	if severity == GoblinData.InjuryState.DEAD:
+		_tick_events.append({"type": "death", "goblin": victim.goblin_name, "by": tackler.goblin_name})
+		_pending_removals.append(victim)
+
+func _remove_goblin_from_match(goblin: GoblinData) -> void:
+	## Remove a dead goblin from the pitch. Shared by tackle kills and fireball.
+	if not goblin_states.has(goblin):
+		return
+	var gs: Dictionary = goblin_states[goblin]
+	var is_home: bool = _gb(gs, "is_home")
+
+	# Drop the ball if they had it
+	if ball.owner == goblin:
+		_clear_ball_intent()
+		ball.set_loose(_gf(gs, "x"), _gf(gs, "y"))
+
+	# Clean up all references
+	goblin_states.erase(goblin)
+	_active_runs.erase(goblin)
+	_action_targets.erase(goblin)
+	_move_targets.erase(goblin)
+	coordinator._roles.erase(goblin)
+	coordinator._role_ticks.erase(goblin)
+
+	# Remove from formation
+	var formation: Formation = home_formation if is_home else away_formation
+	formation.remove_goblin(goblin)
+
+	var team_name: String = "home" if is_home else "away"
+	_tick_events.append({"type": "goblin_removed", "goblin": goblin.goblin_name, "team": team_name})
+
+	# Check if team is wiped out
+	if formation.get_all().is_empty():
+		match_over = true
+		_tick_events.append({"type": "team_eliminated", "team": team_name})
+
+func _process_pending_removals() -> void:
+	for goblin in _pending_removals:
+		_remove_goblin_from_match(goblin)
+	_pending_removals.clear()
+
+const FIREBALL_KILL_RADIUS: float = 0.08   # instant death zone
+const FIREBALL_BLAST_RADIUS: float = 0.16  # injury/death falloff zone
+
+func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
+	## One-time AoE spell: hits all goblins in blast radius.
+	## Center = instant kill, edge = injury chance. Hits both teams!
+	if not fireball_available[team_index]:
+		return false
+
+	fireball_available[team_index] = false
+	_tick_events.append({"type": "fireball", "x": target_x, "y": target_y, "team": "home" if team_index == 0 else "away"})
+
+	# Check every goblin on the pitch
+	var hit_goblins: Array = []
+	for goblin in goblin_states:
+		var gs: Dictionary = goblin_states[goblin]
+		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
+		if d < FIREBALL_BLAST_RADIUS:
+			hit_goblins.append({"goblin": goblin, "dist": d})
+
+	for entry in hit_goblins:
+		var goblin: GoblinData = entry["goblin"]
+		var d: float = float(entry["dist"])
+		if not goblin_states.has(goblin):
+			continue  # already removed by earlier hit this frame
+
+		if d < FIREBALL_KILL_RADIUS:
+			# Direct hit - instant death
+			goblin.apply_injury(GoblinData.InjuryState.DEAD)
+			_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
+			_remove_goblin_from_match(goblin)
+		else:
+			# Blast zone - severity based on distance (closer = worse)
+			var intensity: float = 1.0 - (d - FIREBALL_KILL_RADIUS) / (FIREBALL_BLAST_RADIUS - FIREBALL_KILL_RADIUS)
+			var roll: float = randf()
+			if roll < intensity * 0.4:
+				# Kill
+				goblin.apply_injury(GoblinData.InjuryState.DEAD)
+				_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
+				_remove_goblin_from_match(goblin)
+			elif roll < intensity * 0.7:
+				# Major injury
+				goblin.apply_injury(GoblinData.InjuryState.MAJOR)
+				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "major", "by": "FIREBALL"})
+			else:
+				# Minor injury
+				goblin.apply_injury(GoblinData.InjuryState.MINOR)
+				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "minor", "by": "FIREBALL"})
+
+	return true
+
+# ── Haste Spell ────────────────────────────────────────────────────────────
+
+func cast_haste(team_index: int) -> bool:
+	## One-time spell: +3 speed to all goblins on your team for 10 seconds.
+	if not haste_available[team_index]:
+		return false
+	haste_available[team_index] = false
+	_haste_ticks[team_index] = HASTE_DURATION_TICKS
+
+	var formation: Formation = home_formation if team_index == 0 else away_formation
+	var targets: Array = []
+	for goblin in formation.get_all():
+		if goblin_states.has(goblin):
+			goblin.active_effects.append({"stat": "speed", "amount": HASTE_SPEED_BOOST})
+			targets.append(goblin)
+	_haste_targets[team_index] = targets
+
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "haste", "team": team_name})
+	return true
+
+func _tick_haste() -> void:
+	for i in 2:
+		if _haste_ticks[i] <= 0:
+			continue
+		_haste_ticks[i] -= 1
+		if _haste_ticks[i] == 0:
+			# Remove speed buffs
+			for goblin in _haste_targets[i]:
+				var idx: int = -1
+				for j in goblin.active_effects.size():
+					if goblin.active_effects[j].get("stat", "") == "speed" and goblin.active_effects[j].get("amount", 0) == HASTE_SPEED_BOOST:
+						idx = j
+						break
+				if idx >= 0:
+					goblin.active_effects.remove_at(idx)
+			_haste_targets[i].clear()
+			var team_name: String = "home" if i == 0 else "away"
+			_tick_events.append({"type": "haste_expired", "team": team_name})
+
+# ── Multiball Spell ────────────────────────────────────────────────────────
+
+func cast_multiball(team_index: int) -> bool:
+	## One-time spell: spawn 3 chaotic extra balls that bounce around and can score.
+	if not multiball_available[team_index]:
+		return false
+	multiball_available[team_index] = false
+
+	for k in MULTIBALL_COUNT:
+		var extra := Ball.new()
+		var spawn_x: float = randf_range(0.30, 0.70)
+		var spawn_y: float = randf_range(0.20, 0.80)
+		var angle: float = randf() * TAU
+		extra.set_kicked(spawn_x, spawn_y,
+			spawn_x + cos(angle) * 0.3, spawn_y + sin(angle) * 0.3,
+			MULTIBALL_SPEED, Ball.THROUGH_BALL_FRICTION, false)
+		_extra_balls.append({"ball": extra, "ticks_remaining": MULTIBALL_LIFETIME_TICKS})
+
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "multiball", "team": team_name})
+	return true
+
+func _tick_extra_balls() -> void:
+	var expired: Array = []
+	for i in _extra_balls.size():
+		var entry: Dictionary = _extra_balls[i]
+		var extra: Ball = entry["ball"] as Ball
+		entry["ticks_remaining"] = int(entry["ticks_remaining"]) - 1
+
+		# Update ball physics
+		extra.update(TICK_DELTA)
+
+		# Re-kick if it stopped (keep it bouncing)
+		if extra.get_speed() < Ball.MIN_SPEED:
+			var angle: float = randf() * TAU
+			extra.set_kicked(extra.x, extra.y,
+				extra.x + cos(angle) * 0.3, extra.y + sin(angle) * 0.3,
+				MULTIBALL_SPEED * 0.8, Ball.THROUGH_BALL_FRICTION, false)
+
+		# Check goal: did it enter the goal mouth?
+		var in_goal_y: bool = extra.y > 0.38 and extra.y < 0.62
+		if in_goal_y:
+			if extra.x <= 0.02:
+				# Goal for away team (scored on home goal)
+				score[1] += 1
+				_tick_events.append({"type": "multiball_goal", "team": "away", "score": score.duplicate()})
+				expired.append(i)
+				continue
+			elif extra.x >= 0.98:
+				# Goal for home team (scored on away goal)
+				score[0] += 1
+				_tick_events.append({"type": "multiball_goal", "team": "home", "score": score.duplicate()})
+				expired.append(i)
+				continue
+
+		# Lifetime expiry
+		if int(entry["ticks_remaining"]) <= 0:
+			expired.append(i)
+
+	# Remove expired (reverse order to preserve indices)
+	expired.sort()
+	expired.reverse()
+	for idx in expired:
+		_extra_balls.remove_at(idx)
 
 # ── Action Target (transient, consumed by ideal position update) ──────────
 
@@ -808,7 +1210,12 @@ func _update_ideal_positions() -> void:
 
 		# ── Priority 1: Ball carrier ──
 		if ball.owner == goblin:
-			if _action_targets.has(goblin):
+			# Keepers with ball: hold position, don't dribble upfield
+			if goblin.position == "keeper":
+				raw_x = _gf(gs, "home_x")
+				raw_y = clampf(_gf(gs, "y"), 0.40, 0.60)
+				smooth = CARRIER_SMOOTH
+			elif _action_targets.has(goblin):
 				# Fresh dribble target - save it and use it
 				_carrier_target = _action_targets[goblin].duplicate()
 				raw_x = _gf(_carrier_target, "x")
@@ -823,7 +1230,8 @@ func _update_ideal_positions() -> void:
 				raw_x = clampf(_gf(gs, "x") + fwd2 * 0.15, 0.05, 0.95)
 				raw_y = _gf(gs, "y")
 			smooth = CARRIER_SMOOTH
-			gs["sprinting"] = true
+			if goblin.position != "keeper":
+				gs["sprinting"] = true
 			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
 			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 			continue
@@ -834,6 +1242,15 @@ func _update_ideal_positions() -> void:
 			raw_y = _gf(_action_targets[goblin], "y")
 			smooth = URGENT_SMOOTH
 			gs["sprinting"] = true
+			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
+			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
+			continue
+
+		# ── Priority 2a: Persistent move target (survives between AI ticks) ──
+		if not _action_targets.has(goblin) and _move_targets.has(goblin):
+			raw_x = _gf(_move_targets[goblin], "x")
+			raw_y = _gf(_move_targets[goblin], "y")
+			smooth = IDEAL_SMOOTH
 			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
 			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 			continue
@@ -957,6 +1374,14 @@ func _update_ideal_positions() -> void:
 		gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
 		gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 
+	# Keeper hard clamp - stay between the posts, on the goal line
+	for goblin2 in goblin_states:
+		if goblin2.position == "keeper":
+			var kgs: Dictionary = goblin_states[goblin2]
+			kgs["ideal_y"] = clampf(_gf(kgs, "ideal_y"), 0.38, 0.62)
+			var k_home_x: float = _gf(kgs, "home_x")
+			kgs["ideal_x"] = clampf(_gf(kgs, "ideal_x"), k_home_x - 0.015, k_home_x + 0.015)
+
 	# Clear transient action targets (consumed)
 	_action_targets.clear()
 
@@ -985,118 +1410,96 @@ func _get_receive_target() -> Vector2:
 func _roam_weight(goblin: GoblinData, in_poss: bool) -> float:
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return 0.82 if in_poss else 0.72
+			return 0.55 if in_poss else 0.40
 		"attacking_mid", "shadow_striker", "winger", "wing_back":
-			return 0.74 if in_poss else 0.64
+			return 0.48 if in_poss else 0.35
 		"poacher", "striker", "midfielder", "target_man":
-			return 0.64 if in_poss else 0.54
+			return 0.42 if in_poss else 0.30
 		"anchor", "sweeper", "enforcer":
-			return 0.32 if in_poss else 0.24
+			return 0.20 if in_poss else 0.14
 		"keeper":
 			return 0.0
 		_:
-			return 0.56 if in_poss else 0.48
+			return 0.36 if in_poss else 0.26
 
 func _shape_weight(goblin: GoblinData, team_phase: TeamPhase, in_poss: bool) -> float:
 	match goblin.position:
 		"keeper":
-			return 0.92
+			return 0.95
 		"anchor", "sweeper":
-			return 0.55 if in_poss else 0.68
+			return 0.62 if in_poss else 0.74
 		"enforcer":
-			return 0.42 if in_poss else 0.56
+			return 0.55 if in_poss else 0.68
 		"wing_back":
-			return 0.28 if in_poss else 0.38
+			return 0.40 if in_poss else 0.52
 		"midfielder":
-			return 0.22 if in_poss else 0.30
+			return 0.35 if in_poss else 0.45
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return 0.10 if in_poss else 0.16
+			return 0.22 if in_poss else 0.30
 		"attacking_mid", "shadow_striker", "winger":
-			return 0.08 if in_poss else 0.14
+			return 0.18 if in_poss else 0.26
 		"poacher", "striker", "target_man":
-			return 0.06 if in_poss else 0.12
+			return 0.14 if in_poss else 0.22
 		_:
-			return 0.18 if in_poss else 0.24
+			return 0.28 if in_poss else 0.36
 
 func _support_shift_limit(goblin: GoblinData, in_poss: bool) -> Vector2:
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return Vector2(0.06, 0.08) if in_poss else Vector2(0.05, 0.07)
+			return Vector2(0.06, 0.07) if in_poss else Vector2(0.04, 0.05)
 		"attacking_mid", "shadow_striker", "winger", "wing_back":
-			return Vector2(0.06, 0.08) if in_poss else Vector2(0.05, 0.07)
+			return Vector2(0.06, 0.07) if in_poss else Vector2(0.04, 0.05)
 		"poacher", "striker", "target_man", "midfielder":
-			return Vector2(0.05, 0.07) if in_poss else Vector2(0.04, 0.06)
+			return Vector2(0.05, 0.06) if in_poss else Vector2(0.04, 0.05)
 		"anchor", "sweeper", "enforcer":
-			return Vector2(0.04, 0.05) if in_poss else Vector2(0.03, 0.05)
+			return Vector2(0.04, 0.05) if in_poss else Vector2(0.03, 0.04)
 		"keeper":
-			return Vector2(0.01, 0.03)
+			return Vector2(0.01, 0.02)
 		_:
 			return Vector2(0.05, 0.06)
 
 func _support_refresh_time(goblin: GoblinData) -> float:
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box":
-			return randf_range(1.0, 1.5)
+			return randf_range(1.0, 1.6)
 		"winger", "wing_back", "shadow_striker", "attacking_mid":
-			return randf_range(1.0, 1.5)
+			return randf_range(1.0, 1.8)
 		"anchor", "sweeper", "enforcer", "keeper":
-			return randf_range(1.4, 2.0)
+			return randf_range(1.6, 2.4)
 		_:
-			return randf_range(1.1, 1.7)
+			return randf_range(1.2, 2.0)
 
 func _desired_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
 		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> Vector2:
-	var roam := Vector2(_gf(gs, "roam_x"), _gf(gs, "roam_y"))
-	var current := Vector2(_gf(gs, "support_x"), _gf(gs, "support_y"))
-	var fwd: float = 1.0 if is_home else -1.0
-
-	match goblin.position:
-		"keeper", "anchor", "sweeper", "enforcer":
-			return _get_position_slot(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
-		"winger", "wing_back":
-			var wing_x: float = roam.x + (fwd * 0.02 if in_poss else 0.0)
-			var wing_y: float = lerpf(roam.y, _gf(gs, "home_y"), 0.80)
-			return Vector2(clampf(wing_x, 0.02, 0.98), clampf(wing_y, 0.05, 0.95))
-		"playmaker", "trequartista", "attacking_mid", "box_to_box":
-			var pocket_x: float = lerpf(roam.x, carrier_x - fwd * 0.05, 0.18 if in_poss else 0.08)
-			var pocket_y: float = lerpf(roam.y, carrier_y, 0.16 if in_poss else 0.08)
-			return Vector2(clampf(pocket_x, 0.02, 0.98), clampf(pocket_y, 0.05, 0.95))
-		"poacher", "striker", "shadow_striker", "target_man", "false_nine":
-			var attack_x: float = roam.x + (fwd * 0.03 if in_poss else -fwd * 0.01)
-			var attack_y: float = lerpf(roam.y, carrier_y, 0.10 if in_poss else 0.04)
-			return Vector2(clampf(attack_x, 0.02, 0.98), clampf(attack_y, 0.05, 0.95))
-		"midfielder":
-			var mid_x: float = lerpf(roam.x, carrier_x - fwd * 0.03, 0.10 if in_poss else 0.06)
-			var mid_y: float = lerpf(roam.y, carrier_y, 0.10 if in_poss else 0.06)
-			return Vector2(clampf(mid_x, 0.02, 0.98), clampf(mid_y, 0.05, 0.95))
-		_:
-			return current.lerp(roam, 0.6)
+	## All positions use the shape-aware slot system. This keeps formation
+	## integrity and prevents drift from random roam targets.
+	return _get_position_slot(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
 
 func _expand_roam_rect(rect: Array, goblin: GoblinData, in_poss: bool) -> Array:
 	var x_min: float = float(rect[0])
 	var x_max: float = float(rect[1])
 	var y_min: float = float(rect[2])
 	var y_max: float = float(rect[3])
-	var x_pad: float = 0.04
-	var y_pad: float = 0.06
+	var x_pad: float = 0.02
+	var y_pad: float = 0.03
 
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			x_pad += 0.06
-			y_pad += 0.10
-		"attacking_mid", "shadow_striker", "midfielder":
-			x_pad += 0.05
-			y_pad += 0.08
-		"winger", "wing_back":
 			x_pad += 0.03
 			y_pad += 0.05
+		"attacking_mid", "shadow_striker", "midfielder":
+			x_pad += 0.02
+			y_pad += 0.04
+		"winger", "wing_back":
+			x_pad += 0.01
+			y_pad += 0.02
 		"anchor", "sweeper", "enforcer":
 			x_pad -= 0.01
 			y_pad -= 0.01
 
 	if in_poss:
-		x_pad += 0.02
-		y_pad += 0.03
+		x_pad += 0.01
+		y_pad += 0.02
 
 	return [
 		clampf(x_min - x_pad, 0.02, 0.98),
@@ -1162,13 +1565,43 @@ func _refresh_roam_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_
 		"poacher", "shadow_striker":
 			target_x = lerpf(target_x, _from_progress(minf(0.92, ball_progress + 0.10), is_home), 0.18)
 
+	# Space-seeking: bias roam target away from nearby teammate clusters
+	var my_formation2: Formation = home_formation if is_home else away_formation
+	var repel_x: float = 0.0
+	var repel_y: float = 0.0
+	var repel_count: int = 0
+	for teammate in my_formation2.get_all():
+		if teammate == goblin or teammate.position == "keeper":
+			continue
+		if not goblin_states.has(teammate):
+			continue
+		var tgs: Dictionary = goblin_states[teammate]
+		var tdx: float = target_x - _gf(tgs, "x")
+		var tdy: float = target_y - _gf(tgs, "y")
+		var tdist: float = sqrt(tdx * tdx + tdy * tdy)
+		if tdist < 0.15 and tdist > 0.001:
+			repel_x += tdx / tdist
+			repel_y += tdy / tdist
+			repel_count += 1
+	if repel_count > 0:
+		var repel_strength: float = 0.04
+		target_x += (repel_x / repel_count) * repel_strength
+		target_y += (repel_y / repel_count) * repel_strength
+
+	# Blend new target with current roam position (random walk, not teleport)
+	var prev_roam_x: float = _gf(gs, "roam_x")
+	var prev_roam_y: float = _gf(gs, "roam_y")
+	var walk_blend: float = 0.55  # how much of the new target vs current position
+	target_x = lerpf(prev_roam_x, target_x, walk_blend)
+	target_y = lerpf(prev_roam_y, target_y, walk_blend)
+
 	gs["roam_x"] = clampf(target_x, x_min, x_max)
 	gs["roam_y"] = clampf(target_y, y_min, y_max)
-	gs["roam_timer"] = randf_range(0.8, 1.6)
+	gs["roam_timer"] = randf_range(1.8, 3.2)
 	if goblin.position == "playmaker" or goblin.position == "trequartista":
-		gs["roam_timer"] = randf_range(0.6, 1.1)
+		gs["roam_timer"] = randf_range(1.4, 2.4)
 	elif goblin.position == "anchor" or goblin.position == "sweeper":
-		gs["roam_timer"] = randf_range(1.4, 2.3)
+		gs["roam_timer"] = randf_range(2.8, 4.5)
 
 func _refresh_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
 		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> void:
@@ -1179,7 +1612,8 @@ func _refresh_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, 
 	var target_y: float = move_toward(current.y, desired.y, shift_limit.y)
 	gs["support_x"] = clampf(target_x, 0.02, 0.98)
 	gs["support_y"] = clampf(target_y, 0.05, 0.95)
-	gs["support_timer"] = _support_refresh_time(goblin)
+	# Refresh a bit faster when defending for reactive positioning
+	gs["support_timer"] = _support_refresh_time(goblin) * (0.7 if not in_poss else 1.0)
 
 func _determine_team_phase(is_home: bool, team_has_ball: bool, opponent_has_ball: bool,
 		won_ball: bool, lost_ball: bool, is_loose: bool, carrier_x: float,
@@ -1212,9 +1646,9 @@ func _shape_profile(phase: TeamPhase) -> Dictionary:
 		TeamPhase.COUNTER_ATTACK:
 			return {"attack": 0.76, "midfield": 0.56, "defense": 0.34, "width": 1.16, "compact": 0.58, "ball_pull": 0.05}
 		TeamPhase.COUNTER_PRESS:
-			return {"attack": 0.58, "midfield": 0.44, "defense": 0.26, "width": 1.04, "compact": 0.54, "ball_pull": 0.06}
+			return {"attack": 0.54, "midfield": 0.42, "defense": 0.24, "width": 0.96, "compact": 0.60, "ball_pull": 0.10}
 		TeamPhase.DEFENSIVE_BLOCK:
-			return {"attack": 0.48, "midfield": 0.34, "defense": 0.18, "width": 1.02, "compact": 0.52, "ball_pull": 0.05}
+			return {"attack": 0.46, "midfield": 0.32, "defense": 0.17, "width": 0.95, "compact": 0.58, "ball_pull": 0.08}
 		_:
 			return {"attack": 0.56, "midfield": 0.40, "defense": 0.24, "width": 1.08, "compact": 0.56, "ball_pull": 0.05}
 
@@ -1236,8 +1670,8 @@ func _get_position_slot(goblin: GoblinData, gs: Dictionary, is_home: bool, in_po
 	var shape: Dictionary = _shape_profile(team_phase)
 	var ball_progress: float = _team_progress(carrier_x, is_home)
 	if zone == "goal":
-		var keeper_progress: float = 0.06 + maxf(0.0, ball_progress - 0.55) * 0.05
-		return Vector2(_from_progress(keeper_progress, is_home), clampf(lerpf(home_y, ball.y, 0.3), 0.35, 0.65))
+		var keeper_progress: float = 0.05 + maxf(0.0, ball_progress - 0.55) * 0.02
+		return Vector2(_from_progress(keeper_progress, is_home), clampf(lerpf(0.5, ball.y, 0.25), 0.40, 0.60))
 	var role_progress: float = float(shape[zone])
 	var width_scale: float = float(shape["width"])
 	var compactness: float = float(shape["compact"])
@@ -1295,6 +1729,12 @@ func _get_position_slot(goblin: GoblinData, gs: Dictionary, is_home: bool, in_po
 			progress -= 0.02 if in_poss else 0.00
 			target_y = lerpf(target_y, carrier_y, 0.14)
 
+	# Weak-side width: players on the opposite side of the ball hold wider
+	var ball_side: float = signf(carrier_y - 0.5)
+	var player_side: float = signf(home_y - 0.5)
+	if ball_side != 0.0 and player_side != ball_side and zone != "goal":
+		target_y += player_side * 0.03
+
 	progress = clampf(progress, 0.08, 0.92)
 	target_y = clampf(target_y, 0.08, 0.92)
 	var anchor := Vector2(_from_progress(progress, is_home), target_y)
@@ -1340,44 +1780,120 @@ func _movement_profile(goblin: GoblinData, gs: Dictionary, dx: float, dy: float,
 	}
 
 func _move_all_goblins() -> void:
-	## Every goblin moves toward ideal_x/ideal_y every tick.
-	## Slows down near target, never fully stops.
+	## Velocity-based movement: goblins accelerate/decelerate toward ideal_x/ideal_y
+	## with direction commitment to prevent twitch-corrections.
 	for goblin in goblin_states:
 		var gs: Dictionary = goblin_states[goblin]
 		var dx: float = _gf(gs, "ideal_x") - _gf(gs, "x")
 		var dy: float = _gf(gs, "ideal_y") - _gf(gs, "y")
 		var dist: float = sqrt(dx * dx + dy * dy)
+
+		# Dead zone: ignore tiny ideal position changes to prevent micro-jitter.
+		# Sprinting goblins (chasers, carriers, pressers) skip this for responsiveness.
+		if dist < IDEAL_DEAD_ZONE and not bool(gs.get("sprinting", false)):
+			gs["vel_x"] = lerpf(_gf(gs, "vel_x"), 0.0, DECEL_RATE)
+			gs["vel_y"] = lerpf(_gf(gs, "vel_y"), 0.0, DECEL_RATE)
+			continue
+
 		var profile: Dictionary = _movement_profile(goblin, gs, dx, dy, dist)
 		var max_move: float = _gf(profile, "max_move")
 		var slowdown_radius: float = _gf(profile, "slowdown_radius")
 
-		# Arrival behavior: scale speed based on distance
-		var move_amount: float
+		# Desired speed from arrival behavior
+		var desired_speed: float
 		if dist < ARRIVAL_RADIUS:
-			move_amount = MIN_DRIFT_SPEED
+			desired_speed = MIN_DRIFT_SPEED
 		elif dist < slowdown_radius:
-			var t: float = dist / slowdown_radius
-			move_amount = lerpf(MIN_DRIFT_SPEED, max_move, t)
+			desired_speed = lerpf(MIN_DRIFT_SPEED, max_move, dist / slowdown_radius)
 		else:
-			move_amount = max_move
+			desired_speed = max_move
 
-		# Apply movement
-		if dist > 0.001:
-			if dist <= move_amount:
-				gs["x"] = _gf(gs, "ideal_x")
-				gs["y"] = _gf(gs, "ideal_y")
+		# Desired direction
+		var desired_dir_x: float = 0.0
+		var desired_dir_y: float = 0.0
+		if dist > ARRIVAL_RADIUS:
+			desired_dir_x = dx / dist
+			desired_dir_y = dy / dist
+
+		# Current velocity
+		var vel_x: float = _gf(gs, "vel_x")
+		var vel_y: float = _gf(gs, "vel_y")
+		var cur_speed: float = sqrt(vel_x * vel_x + vel_y * vel_y)
+		var cur_dir_x: float = 0.0
+		var cur_dir_y: float = 0.0
+		if cur_speed > 0.001:
+			cur_dir_x = vel_x / cur_speed
+			cur_dir_y = vel_y / cur_speed
+
+		# Commitment: direction locked for a few ticks after big turns / chase commits
+		# Skip commitment when very close to target - need precision, not momentum
+		var commit: int = int(gs.get("commit_ticks", 0))
+		if commit > 0 and dist > LOOSE_BALL_RANGE:
+			gs["commit_ticks"] = commit - 1
+			# Maintain current direction, reduce speed
+			var commit_speed: float = lerpf(cur_speed, desired_speed * COMMIT_SPEED_FACTOR, DECEL_RATE)
+			if cur_speed > 0.001:
+				vel_x = cur_dir_x * commit_speed
+				vel_y = cur_dir_y * commit_speed
 			else:
-				var ratio: float = move_amount / dist
-				gs["x"] = _gf(gs, "x") + dx * ratio
-				gs["y"] = _gf(gs, "y") + dy * ratio
+				vel_x = desired_dir_x * commit_speed
+				vel_y = desired_dir_y * commit_speed
+		elif dist > ARRIVAL_RADIUS:
+			# Clear stale commitment when close to target
+			if commit > 0:
+				gs["commit_ticks"] = 0
+			# Direction change detection (only when far enough to matter)
+			var dot: float = cur_dir_x * desired_dir_x + cur_dir_y * desired_dir_y
+			if dot < DIRECTION_CHANGE_THRESHOLD and cur_speed > 0.003 and dist > LOOSE_BALL_RANGE:
+				# Big turn: set commitment and start braking
+				gs["commit_ticks"] = COMMIT_TICKS_ON_TURN
+				var brake_speed: float = lerpf(cur_speed, desired_speed * COMMIT_SPEED_FACTOR, DECEL_RATE)
+				vel_x = cur_dir_x * brake_speed
+				vel_y = cur_dir_y * brake_speed
+			else:
+				# Steer toward desired direction
+				var new_dir_x: float = lerpf(cur_dir_x, desired_dir_x, STEER_RATE)
+				var new_dir_y: float = lerpf(cur_dir_y, desired_dir_y, STEER_RATE)
+				var new_dir_len: float = sqrt(new_dir_x * new_dir_x + new_dir_y * new_dir_y)
+				if new_dir_len > 0.001:
+					new_dir_x /= new_dir_len
+					new_dir_y /= new_dir_len
+				# Accelerate / decelerate
+				var rate: float = ACCEL_RATE if desired_speed >= cur_speed else DECEL_RATE
+				var new_speed: float = lerpf(cur_speed, desired_speed, rate)
+				vel_x = new_dir_x * new_speed
+				vel_y = new_dir_y * new_speed
+		else:
+			# At target: decelerate to stop
+			vel_x = lerpf(vel_x, 0.0, DECEL_RATE)
+			vel_y = lerpf(vel_y, 0.0, DECEL_RATE)
 
-			# Clamp to pitch
-			gs["x"] = clampf(_gf(gs, "x"), 0.02, 0.98)
-			gs["y"] = clampf(_gf(gs, "y"), 0.05, 0.95)
+		# Apply velocity to position
+		var new_x: float = _gf(gs, "x") + vel_x
+		var new_y: float = _gf(gs, "y") + vel_y
 
-			# Update facing
-			if absf(dx) > 0.001:
-				gs["facing"] = 1.0 if dx > 0 else -1.0
+		# Snap to target if very close (prevents orbiting)
+		if dist > 0.001 and dist <= sqrt(vel_x * vel_x + vel_y * vel_y) + 0.001:
+			new_x = _gf(gs, "ideal_x")
+			new_y = _gf(gs, "ideal_y")
+			vel_x = 0.0
+			vel_y = 0.0
+
+		# Clamp to pitch + zero velocity into walls
+		var clamped_x: float = clampf(new_x, 0.02, 0.98)
+		var clamped_y: float = clampf(new_y, 0.05, 0.95)
+		if clamped_x != new_x:
+			vel_x = 0.0
+		if clamped_y != new_y:
+			vel_y = 0.0
+		gs["x"] = clamped_x
+		gs["y"] = clamped_y
+		gs["vel_x"] = vel_x
+		gs["vel_y"] = vel_y
+
+		# Update facing
+		if absf(vel_x) > 0.001:
+			gs["facing"] = 1.0 if vel_x > 0 else -1.0
 
 	# Separation: push apart same-team goblins that are too close
 	var all_goblins: Array = goblin_states.keys()
@@ -1391,22 +1907,37 @@ func _move_all_goblins() -> void:
 			if _gb(gsa, "is_home") != _gb(gsb, "is_home"):
 				continue
 
-			var dx: float = _gf(gsa, "x") - _gf(gsb, "x")
-			var dy: float = _gf(gsa, "y") - _gf(gsb, "y")
-			var dist: float = sqrt(dx * dx + dy * dy)
+			var sep_dx: float = _gf(gsa, "x") - _gf(gsb, "x")
+			var sep_dy: float = _gf(gsa, "y") - _gf(gsb, "y")
+			var sep_dist: float = sqrt(sep_dx * sep_dx + sep_dy * sep_dy)
 
-			if dist < SEPARATION_DIST and dist > 0.001:
-				var overlap: float = SEPARATION_DIST - dist
-				var push: float = overlap * SEPARATION_FORCE / dist
+			if sep_dist < SEPARATION_DIST and sep_dist > 0.001:
+				var overlap: float = SEPARATION_DIST - sep_dist
+				var push: float = overlap * SEPARATION_FORCE / sep_dist
 				var resist_a: float = float(ga.get_stat("strength")) * 0.60 + float(ga.get_stat("defense")) * 0.40
 				var resist_b: float = float(gb_gob.get_stat("strength")) * 0.60 + float(gb_gob.get_stat("defense")) * 0.40
 				var total_resist: float = maxf(1.0, resist_a + resist_b)
 				var a_share: float = resist_b / total_resist
 				var b_share: float = resist_a / total_resist
-				gsa["x"] = clampf(_gf(gsa, "x") + dx * push * a_share, 0.02, 0.98)
-				gsa["y"] = clampf(_gf(gsa, "y") + dy * push * a_share, 0.05, 0.95)
-				gsb["x"] = clampf(_gf(gsb, "x") - dx * push * b_share, 0.02, 0.98)
-				gsb["y"] = clampf(_gf(gsb, "y") - dy * push * b_share, 0.05, 0.95)
+				# Push positions
+				gsa["x"] = clampf(_gf(gsa, "x") + sep_dx * push * a_share, 0.02, 0.98)
+				gsa["y"] = clampf(_gf(gsa, "y") + sep_dy * push * a_share, 0.05, 0.95)
+				gsb["x"] = clampf(_gf(gsb, "x") - sep_dx * push * b_share, 0.02, 0.98)
+				gsb["y"] = clampf(_gf(gsb, "y") - sep_dy * push * b_share, 0.05, 0.95)
+				# Also nudge velocity so separation feels physical
+				var vel_push: float = push * 0.3
+				gsa["vel_x"] = _gf(gsa, "vel_x") + sep_dx * vel_push * a_share
+				gsa["vel_y"] = _gf(gsa, "vel_y") + sep_dy * vel_push * a_share
+				gsb["vel_x"] = _gf(gsb, "vel_x") - sep_dx * vel_push * b_share
+				gsb["vel_y"] = _gf(gsb, "vel_y") - sep_dy * vel_push * b_share
+
+	# Hard clamp keeper positions - stay between the posts, on the line
+	for goblin3 in goblin_states:
+		if goblin3.position == "keeper":
+			var kgs2: Dictionary = goblin_states[goblin3]
+			var kh_x: float = _gf(kgs2, "home_x")
+			kgs2["y"] = clampf(_gf(kgs2, "y"), 0.38, 0.62)
+			kgs2["x"] = clampf(_gf(kgs2, "x"), kh_x - 0.015, kh_x + 0.015)
 
 # ── Kickoff Reset ───────────────────────────────────────────────────────────
 
@@ -1414,11 +1945,14 @@ func _reset_positions_for_kickoff(kicking_team_idx: int) -> void:
 	_active_runs.clear()
 	_action_targets.clear()
 	_carrier_target.clear()
+	_move_targets.clear()
 	_clear_ball_intent()
 	_apply_kickoff_reset(home_formation, true)
 	_apply_kickoff_reset(away_formation, false)
 
-	var formation: Formation = home_formation if kicking_team_idx == 0 else away_formation
+	var is_home_kicking: bool = kicking_team_idx == 0
+	var formation: Formation = home_formation if is_home_kicking else away_formation
+	var fwd: float = 1.0 if is_home_kicking else -1.0
 	var mids := formation.midfield
 	if not mids.is_empty():
 		var kicker: GoblinData = mids[0]
@@ -1432,8 +1966,60 @@ func _reset_positions_for_kickoff(kicking_team_idx: int) -> void:
 		kgs["roam_y"] = 0.5
 		kgs["support_x"] = 0.5
 		kgs["support_y"] = 0.5
+
+		# Find outlet: prefer 2nd midfielder, fallback to nearest attacker
+		var outlet: GoblinData = null
+		if mids.size() > 1:
+			outlet = mids[1]
+		else:
+			var attackers := formation.attack
+			if not attackers.is_empty():
+				outlet = attackers[0]
+		if outlet and goblin_states.has(outlet):
+			# Position outlet just behind center on own half as a short-pass option
+			var ogs: Dictionary = goblin_states[outlet]
+			var outlet_x: float = clampf(0.5 - fwd * 0.04, 0.10, 0.90)
+			var outlet_y: float = clampf(0.5 + randf_range(-0.08, 0.08), 0.15, 0.85)
+			ogs["x"] = outlet_x
+			ogs["y"] = outlet_y
+			ogs["ideal_x"] = outlet_x
+			ogs["ideal_y"] = outlet_y
+			ogs["roam_x"] = outlet_x
+			ogs["roam_y"] = outlet_y
+			ogs["support_x"] = outlet_x
+			ogs["support_y"] = outlet_y
+
+		# Set kickoff hold state
+		_kickoff_hold_ticks = KICKOFF_HOLD_DURATION
+		_kickoff_kicker = kicker
+		_kickoff_outlet = outlet
 	else:
 		ball.set_dead(0.5, 0.5)
+		_kickoff_hold_ticks = 0
+		_kickoff_kicker = null
+		_kickoff_outlet = null
+
+func _execute_kickoff_pass() -> void:
+	if _kickoff_kicker == null or not goblin_states.has(_kickoff_kicker):
+		_kickoff_kicker = null
+		_kickoff_outlet = null
+		return
+	if _kickoff_outlet == null or not goblin_states.has(_kickoff_outlet):
+		# No outlet - just let the kicker play on
+		_kickoff_kicker = null
+		_kickoff_outlet = null
+		return
+	var ogs: Dictionary = goblin_states[_kickoff_outlet]
+	var decision := GoblinAI.Decision.new(
+		GoblinAI.Action.PASS,
+		_gf(ogs, "x"),
+		_gf(ogs, "y"),
+		_kickoff_outlet
+	)
+	_execute_pass(_kickoff_kicker, decision)
+	_tick_events.append({"type": "kickoff_pass", "from": _kickoff_kicker.goblin_name, "to": _kickoff_outlet.goblin_name})
+	_kickoff_kicker = null
+	_kickoff_outlet = null
 
 # ── AI Context Builder ─────────────────────────────────────────────────────
 
@@ -1559,4 +2145,10 @@ func _build_snapshot() -> Dictionary:
 		"events": _tick_events.duplicate(),
 		"match_over": match_over,
 		"spells_locked": spells_locked,
+		"fireball_available": fireball_available[0],
+		"haste_available": haste_available[0],
+		"multiball_available": multiball_available[0],
+		"haste_active": _haste_ticks[0] > 0,
+		"extra_balls": _extra_balls.map(func(e): return {"x": (e["ball"] as Ball).x, "y": (e["ball"] as Ball).y}),
+		"mana": mana.duplicate(),
 	}

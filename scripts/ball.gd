@@ -22,8 +22,9 @@ const WALL_BOUNCE: float = 0.5            # velocity retained on wall bounce
 
 # LOOSE state
 var loose_timer: float = 0.0
-const LOOSE_TIMEOUT: float = 4.0
+const LOOSE_TIMEOUT: float = 2.5
 var _friction: float = GROUND_FRICTION
+var aerial: bool = false  # true when ball is in the air (long pass, cross, shot, clear)
 
 # ── State Transitions ───────────────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ func set_controlled(goblin: GoblinData, gx: float, gy: float) -> void:
 	vx = 0.0
 	vy = 0.0
 	loose_timer = 0.0
+	aerial = false
 
 func set_loose(lx: float, ly: float) -> void:
 	state = BallState.LOOSE
@@ -44,8 +46,9 @@ func set_loose(lx: float, ly: float) -> void:
 	# Keep existing velocity (ball rolls away from tackle/dispossession)
 	loose_timer = LOOSE_TIMEOUT
 	_friction = GROUND_FRICTION
+	aerial = false
 
-func set_kicked(from_x: float, from_y: float, to_x: float, to_y: float, speed: float, friction: float = GROUND_FRICTION) -> void:
+func set_kicked(from_x: float, from_y: float, to_x: float, to_y: float, speed: float, friction: float = GROUND_FRICTION, is_aerial: bool = false) -> void:
 	## Kick ball with velocity toward target point at given speed.
 	state = BallState.TRAVELLING
 	owner = null
@@ -61,6 +64,7 @@ func set_kicked(from_x: float, from_y: float, to_x: float, to_y: float, speed: f
 		vx = 0.0
 		vy = 0.0
 	_friction = friction
+	aerial = is_aerial
 
 func set_dead(dx: float, dy: float) -> void:
 	state = BallState.DEAD
@@ -154,4 +158,5 @@ func to_dict() -> Dictionary:
 		"y": y,
 		"state": BallState.keys()[state],
 		"owner_name": owner.goblin_name if owner else "",
+		"aerial": aerial,
 	}

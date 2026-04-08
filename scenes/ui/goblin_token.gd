@@ -15,8 +15,11 @@ var zone: String = ""
 var is_player: bool = true
 var base_position: Vector2 = Vector2.ZERO  # Home position (set by pitch)
 var highlighted: bool = false
+var has_ball: bool = false  # Ball carrier glow
+var targetable: bool = false  # Fireball targeting mode
 
 var _highlight_tween: Tween
+var _ball_glow_tween: Tween
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(TOKEN_RADIUS * 2, TOKEN_RADIUS * 2)
@@ -44,6 +47,21 @@ func set_highlight(on: bool) -> void:
 		modulate = Color.WHITE
 	queue_redraw()
 
+func set_has_ball(on: bool) -> void:
+	if has_ball == on:
+		return
+	has_ball = on
+	if _ball_glow_tween and _ball_glow_tween.is_valid():
+		_ball_glow_tween.kill()
+	if on:
+		_ball_glow_tween = create_tween().set_loops()
+		_ball_glow_tween.tween_property(self, "modulate", Color(1.25, 1.15, 0.85, 1.0), 0.4)
+		_ball_glow_tween.tween_property(self, "modulate", Color(1.05, 1.0, 0.95, 1.0), 0.4)
+	else:
+		if not highlighted:
+			modulate = Color.WHITE
+	queue_redraw()
+
 func flash_event(event_type: String) -> void:
 	## Brief visual flash for match events.
 	var flash_color: Color
@@ -58,6 +76,23 @@ func flash_event(event_type: String) -> void:
 			flash_color = Color(1.4, 0.4, 0.3)
 		"save":
 			flash_color = Color(0.5, 1.5, 0.5)
+		"interception":
+			flash_color = Color(0.4, 0.9, 1.4)
+		"dispossessed", "bad_touch":
+			flash_color = Color(1.2, 0.6, 0.3)
+		"pass":
+			flash_color = Color(1.1, 1.1, 1.0)
+		"cross":
+			flash_color = Color(1.0, 1.2, 0.8)
+		"block":
+			flash_color = Color(0.8, 0.5, 1.3)
+		"take_on":
+			flash_color = Color(0.7, 0.9, 1.4)
+		"injury":
+			flash_color = Color(1.4, 0.6, 0.2)
+		"death", "fireball":
+			flash_color = Color(1.5, 0.2, 0.1)
+			do_bounce = true
 		_:
 			return
 
@@ -67,6 +102,11 @@ func flash_event(event_type: String) -> void:
 		tween.parallel().tween_property(self, "scale", Vector2(1.4, 1.4), 0.12).set_ease(Tween.EASE_OUT)
 		tween.tween_property(self, "scale", Vector2.ONE, 0.2).set_ease(Tween.EASE_IN)
 	tween.tween_property(self, "modulate", Color.WHITE, 0.3)
+
+func set_targetable(on: bool) -> void:
+	targetable = on
+	mouse_filter = Control.MOUSE_FILTER_STOP if on else Control.MOUSE_FILTER_IGNORE
+	queue_redraw()
 
 func get_center() -> Vector2:
 	## Returns the center of this token in parent coordinates.
@@ -88,9 +128,19 @@ func _draw() -> void:
 	var border_w: float = 2.0
 	draw_arc(center, TOKEN_RADIUS, 0, TAU, 32, Color(border_color.r, border_color.g, border_color.b, alpha), border_w)
 
+	# Ball carrier ring
+	if has_ball:
+		draw_arc(center, TOKEN_RADIUS + 2, 0, TAU, 32, Color(1.0, 0.95, 0.6, 0.8), 2.5)
+		draw_arc(center, TOKEN_RADIUS + 5, 0, TAU, 32, Color(1.0, 0.85, 0.3, 0.35), 1.5)
+
 	# Highlight ring
 	if highlighted:
 		draw_arc(center, TOKEN_RADIUS + 3, 0, TAU, 32, HIGHLIGHT_COLOR, 2.0)
+
+	# Targeting crosshair (fireball mode)
+	if targetable:
+		draw_arc(center, TOKEN_RADIUS + 4, 0, TAU, 32, Color(1.0, 0.3, 0.1, 0.8), 2.5)
+		draw_arc(center, TOKEN_RADIUS + 7, 0, TAU, 32, Color(1.0, 0.2, 0.0, 0.4), 1.5)
 
 	# Goblin name (shortened)
 	var font: Font = ThemeDB.fallback_font

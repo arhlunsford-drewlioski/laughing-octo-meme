@@ -55,6 +55,39 @@ func _init() -> void:
 					print("%d' FOUL: %s on %s" % [m, event["goblin"], event["victim"]])
 				"dispossessed":
 					print("%d' Dispossessed: %s by %s" % [m, event["goblin"], event["by"]])
+				"take_on":
+					print("%d' Take on: %s beats %s" % [m, event["goblin"], event["beaten"]])
+				"clearance":
+					print("%d' Clearance: %s" % [m, event["goblin"]])
+				"aerial":
+					print("%d' Aerial: %s wins over %s" % [m, event["winner"], event["loser"]])
+				"post":
+					print("%d' POST! %s hits the frame" % [m, event["goblin"]])
+				"keeper_claim":
+					print("%d' Keeper claim: %s" % [m, event["keeper"]])
+				"keeper_punch":
+					print("%d' Keeper punch: %s" % [m, event["keeper"]])
+				"corner_awarded":
+					print("%d' Corner: %s" % [m, event["team"]])
+				"injury":
+					print("%d' INJURY: %s hurt by %s (%s)" % [m, event["goblin"], event["by"], event["severity"]])
+				"death":
+					print("%d' DEATH: %s killed by %s!!!" % [m, event["goblin"], event["by"]])
+				"goblin_removed":
+					print("%d' %s removed from match (%s team)" % [m, event["goblin"], event["team"]])
+				"team_eliminated":
+					print("%d' %s TEAM ELIMINATED!" % [m, event["team"]])
+				"fireball":
+					print("%d' FIREBALL at (%.2f, %.2f)!" % [m, event["x"], event["y"]])
+				"haste":
+					print("%d' HASTE: %s team boosted!" % [m, event["team"]])
+				"haste_expired":
+					print("%d' Haste expired: %s" % [m, event["team"]])
+				"multiball":
+					print("%d' MULTIBALL: %s team spawns chaos!" % [m, event["team"]])
+				"multiball_goal":
+					var mbs: Array = event["score"]
+					print("%d' MULTIBALL GOAL! %s! Score: %d-%d" % [m, event["team"], mbs[0], mbs[1]])
 
 	var sc: Array = snapshot["score"]
 	print("")

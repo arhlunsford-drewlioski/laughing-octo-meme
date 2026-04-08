@@ -76,18 +76,18 @@ Goals are the end of a chain, not a single roll:
 
 ```
 1. Win possession (tackle, interception, keeper save)
-       ↓
+	   ↓
 2. Build up (passes through midfield - each can be intercepted)
-       ↓
+	   ↓
 3. Create chance (through ball, cross, dribble into box)
-       ↓
+	   ↓
 4. Shooting opportunity (attacker vs keeper area)
-       ↓
+	   ↓
 5. Shot resolution
-       ↓
+	   ↓
    GOAL  /  SAVE  /  MISS  /  BLOCK
-           ↓         ↓         ↓
-        Rebound   Goal kick  Corner/loose ball
+		   ↓         ↓         ↓
+		Rebound   Goal kick  Corner/loose ball
 ```
 
 ### Shot Resolution
@@ -184,8 +184,8 @@ Simulation and visuals are completely separated.
 {
   ball: { x, y, state, owner, velocity },
   goblins: [
-    { name, x, y, state, facing, active_effects },
-    ...
+	{ name, x, y, state, facing, active_effects },
+	...
   ],
   spells_locked: bool,
   mana: float,
@@ -201,9 +201,9 @@ Simulation and visuals are completely separated.
 2. For each goblin (sorted by readiness):
    a. Fill readiness meter (+= speed * tick_delta)
    b. If readiness >= threshold:
-      - Decide action (GoblinAI based on position type + command)
-      - Execute action (stat contest if opponent involved)
-      - Set cooldown, reset readiness
+	  - Decide action (GoblinAI based on position type + command)
+	  - Execute action (stat contest if opponent involved)
+	  - Set cooldown, reset readiness
 3. Resolve loose ball contests (multiple goblins near loose ball)
 4. Resolve committed actions (shot reaching goal, pass arriving)
 5. Check goals, out of play, fouls

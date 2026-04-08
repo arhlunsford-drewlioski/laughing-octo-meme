@@ -31,6 +31,9 @@ const LETTERBOX_COLOR := Color(0.08, 0.08, 0.11)
 const BALL_RADIUS := 5.0
 const BALL_COLOR := Color(0.95, 0.95, 0.9)
 
+signal goblin_token_clicked(goblin_name: String)
+signal pitch_clicked(pitch_x: float, pitch_y: float)
+
 # State
 var player_formation: Formation
 var opponent_formation: Formation
@@ -50,8 +53,27 @@ var _jitter_timers: Dictionary = {}  # token -> next jitter time
 var _snapshot_active: bool = false
 var _raw_targets: Dictionary = {}      # goblin_name -> Vector2 (from sim, updated per tick)
 var _raw_ball_target: Vector2 = Vector2.ZERO
+var _ball_state: String = "CONTROLLED"
+var _ball_aerial: bool = false
+var _ball_scale: float = 1.0            # current visual scale (lerps toward target)
+var _ball_owner_name: String = ""       # current ball carrier for glow tracking
+const BALL_AERIAL_SCALE: float = 1.8    # scale when ball is in the air (TRAVELLING)
+const BALL_SCALE_LERP: float = 6.0      # how fast scale animates
 const TOKEN_LERP_SPEED: float = 8.0    # direct token easing; less floaty than double smoothing
 const BALL_LERP_SPEED: float = 6.0      # ball readable speed
+
+# Extra balls (multiball spell)
+var _extra_ball_positions: Array = []  # [{x, y}] from snapshot
+var _extra_ball_lerped: Array = []     # [Vector2] screen positions for smooth rendering
+const EXTRA_BALL_COLOR := Color(1.0, 0.5, 0.1)  # orange chaos balls
+const EXTRA_BALL_RADIUS := 4.0
+
+# Haste visual
+var _haste_active: bool = false
+
+# Pass line visualization (disabled)
+var _pass_lines: Array = []
+const PASS_LINE_FADE: float = 3.0
 
 func setup(p_formation: Formation, o_formation: Formation) -> void:
 	player_formation = p_formation
@@ -169,6 +191,76 @@ func get_all_player_tokens() -> Array[Control]:
 func get_all_opponent_tokens() -> Array[Control]:
 	return _opponent_tokens
 
+func remove_goblin_token(goblin_name: String) -> void:
+	## Animate a goblin dying and remove their token from the pitch.
+	var token: Control = _token_map.get(goblin_name, null)
+	if token == null:
+		return
+	_token_map.erase(goblin_name)
+	_player_tokens.erase(token)
+	_opponent_tokens.erase(token)
+	_raw_targets.erase(goblin_name)
+	# Death animation: shrink + fade out
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(token, "scale", Vector2.ZERO, 0.4).set_ease(Tween.EASE_IN)
+	tween.tween_property(token, "modulate", Color(1, 0.2, 0, 0), 0.4)
+	tween.chain().tween_callback(token.queue_free)
+
+var _fireball_targeting: bool = false
+
+# Fireball explosion effect
+var _explosion_active: bool = false
+var _explosion_center: Vector2 = Vector2.ZERO
+var _explosion_time: float = 0.0
+const EXPLOSION_DURATION: float = 0.6
+const EXPLOSION_MAX_RADIUS: float = 100.0  # pixels
+var _screen_shake: Vector2 = Vector2.ZERO
+
+func screen_to_pitch(screen_pos: Vector2) -> Vector2:
+	## Convert control-space position to pitch-relative coordinates (0-1).
+	if _pitch_rect.size.x < 1 or _pitch_rect.size.y < 1:
+		return Vector2(0.5, 0.5)
+	var px: float = (screen_pos.x - _pitch_rect.position.x) / _pitch_rect.size.x
+	var py: float = (screen_pos.y - _pitch_rect.position.y) / _pitch_rect.size.y
+	return Vector2(clampf(px, 0.0, 1.0), clampf(py, 0.0, 1.0))
+
+func set_fireball_targeting(enabled: bool) -> void:
+	## Toggle AoE fireball targeting - click anywhere on pitch.
+	_fireball_targeting = enabled
+	if enabled:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+	else:
+		mouse_filter = Control.MOUSE_FILTER_PASS
+
+func play_fireball_explosion(pitch_x: float, pitch_y: float) -> void:
+	## Trigger the visual explosion at a pitch coordinate.
+	_explosion_center = _pitch_pos(pitch_x, pitch_y)
+	_explosion_time = 0.0
+	_explosion_active = true
+
+func _gui_input(event: InputEvent) -> void:
+	if _fireball_targeting and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var local_pos: Vector2 = event.position
+		var pitch_pos: Vector2 = screen_to_pitch(local_pos)
+		pitch_clicked.emit(pitch_pos.x, pitch_pos.y)
+		get_viewport().set_input_as_handled()
+
+func set_opponent_targeting(enabled: bool) -> void:
+	## Toggle targeting mode on individual opponent tokens.
+	for token in _opponent_tokens:
+		token.set_targetable(enabled)
+		if enabled:
+			if not token.gui_input.is_connected(_on_target_token_input):
+				token.gui_input.connect(_on_target_token_input.bind(token))
+		else:
+			if token.gui_input.is_connected(_on_target_token_input):
+				token.gui_input.disconnect(_on_target_token_input)
+
+func _on_target_token_input(event: InputEvent, token: Control) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		goblin_token_clicked.emit(token.goblin_data.goblin_name)
+
 func get_zone_center(zone: String, is_player: bool) -> Vector2:
 	## Get the center point of a zone.
 	var x_map: Dictionary = PLAYER_X if is_player else OPPONENT_X
@@ -210,8 +302,9 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	_snapshot_active = true
 	idle_paused = true
 
-	# Update raw goblin targets (these jump each tick - that's fine)
+	# Update raw goblin targets and track ball carrier
 	var goblins_arr: Array = snapshot["goblins"]
+	var new_owner_name: String = ""
 	for gdata: Dictionary in goblins_arr:
 		var goblin_name: String = str(gdata["name"])
 		if not _token_map.has(goblin_name):
@@ -220,18 +313,59 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 		var target_center: Vector2 = _pitch_pos(float(gdata["x"]), float(gdata["y"]))
 		var target_pos: Vector2 = target_center - Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
 		_raw_targets[goblin_name] = target_pos
+		if bool(gdata.get("has_ball", false)):
+			new_owner_name = goblin_name
 
-	# Update raw ball target
+	# Update ball carrier glow
+	if new_owner_name != _ball_owner_name:
+		if _ball_owner_name != "" and _token_map.has(_ball_owner_name):
+			_token_map[_ball_owner_name].set_has_ball(false)
+		if new_owner_name != "" and _token_map.has(new_owner_name):
+			_token_map[new_owner_name].set_has_ball(true)
+		_ball_owner_name = new_owner_name
+
+	# Update raw ball target + state
 	var ball_data: Dictionary = snapshot["ball"]
 	_raw_ball_target = _pitch_pos(float(ball_data["x"]), float(ball_data["y"]))
+	_ball_state = str(ball_data.get("state", "CONTROLLED"))
+	_ball_aerial = bool(ball_data.get("aerial", false))
+
+	# Extra balls (multiball)
+	_extra_ball_positions = snapshot.get("extra_balls", [])
+	# Grow/shrink lerped array to match
+	while _extra_ball_lerped.size() < _extra_ball_positions.size():
+		var eb: Dictionary = _extra_ball_positions[_extra_ball_lerped.size()]
+		_extra_ball_lerped.append(_pitch_pos(float(eb["x"]), float(eb["y"])))
+	while _extra_ball_lerped.size() > _extra_ball_positions.size():
+		_extra_ball_lerped.pop_back()
+
+	# Haste glow
+	_haste_active = bool(snapshot.get("haste_active", false))
 
 # -- Animation --
+
+func show_pass_line(_from_name: String, _to_name: String, _line_color: Color = Color(1, 1, 1, 0.5)) -> void:
+	pass  # Disabled - pass lines removed
 
 func _process(delta: float) -> void:
 	if _snapshot_active:
 		_process_snapshot_lerp(delta)
 	elif not idle_paused:
 		_process_idle(delta)
+
+	# Explosion effect
+	if _explosion_active:
+		_explosion_time += delta
+		if _explosion_time >= EXPLOSION_DURATION:
+			_explosion_active = false
+			_screen_shake = Vector2.ZERO
+			position = Vector2.ZERO
+		else:
+			# Screen shake (decays over time)
+			var shake_intensity: float = (1.0 - _explosion_time / EXPLOSION_DURATION) * 8.0
+			_screen_shake = Vector2(randf_range(-shake_intensity, shake_intensity), randf_range(-shake_intensity, shake_intensity))
+			position = _screen_shake
+		queue_redraw()
 
 func _process_snapshot_lerp(delta: float) -> void:
 	## Single-stage interpolation keeps motion readable and avoids the
@@ -253,6 +387,24 @@ func _process_snapshot_lerp(delta: float) -> void:
 		var current_center := get_ball_center()
 		var new_center := current_center.lerp(_raw_ball_target, ball_lerp)
 		set_ball_center(new_center)
+
+		# Aerial visual: scale ball up when it's in the air (long passes, crosses, shots)
+		var target_scale: float = BALL_AERIAL_SCALE if _ball_aerial else 1.0
+		var scale_lerp: float = 1.0 - exp(-BALL_SCALE_LERP * delta)
+		_ball_scale = lerpf(_ball_scale, target_scale, scale_lerp)
+		var visual_scale := Vector2(_ball_scale, _ball_scale)
+		if _ball.scale != visual_scale:
+			_ball.scale = visual_scale
+			_ball.pivot_offset = Vector2(BALL_RADIUS, BALL_RADIUS)
+
+	# Extra balls (multiball) - lerp toward their targets
+	for i in _extra_ball_lerped.size():
+		if i < _extra_ball_positions.size():
+			var eb: Dictionary = _extra_ball_positions[i]
+			var target: Vector2 = _pitch_pos(float(eb["x"]), float(eb["y"]))
+			_extra_ball_lerped[i] = _extra_ball_lerped[i].lerp(target, ball_lerp)
+	if not _extra_ball_lerped.is_empty():
+		queue_redraw()
 
 func _process_idle(delta: float) -> void:
 	_idle_time += delta
@@ -286,6 +438,59 @@ func _draw() -> void:
 	# Letterbox background
 	draw_rect(Rect2(Vector2.ZERO, size), LETTERBOX_COLOR)
 	_draw_pitch()
+	_draw_extra_balls()
+	_draw_haste_glow()
+	_draw_explosion()
+
+func _draw_extra_balls() -> void:
+	for pos in _extra_ball_lerped:
+		# Glowing orange chaos ball
+		draw_circle(pos, EXTRA_BALL_RADIUS + 3, Color(1.0, 0.4, 0.0, 0.3))
+		draw_circle(pos, EXTRA_BALL_RADIUS, EXTRA_BALL_COLOR)
+		draw_circle(pos, EXTRA_BALL_RADIUS * 0.5, Color(1.0, 0.8, 0.3))
+
+func _draw_haste_glow() -> void:
+	if not _haste_active:
+		return
+	# Subtle green glow around all player tokens
+	for token in _player_tokens:
+		if is_instance_valid(token):
+			var center: Vector2 = token.position + Vector2(18, 18)  # TOKEN_RADIUS
+			draw_arc(center, 22, 0, TAU, 24, Color(0.2, 1.0, 0.3, 0.4), 2.0)
+
+func _draw_explosion() -> void:
+	if not _explosion_active:
+		return
+	var t: float = _explosion_time / EXPLOSION_DURATION  # 0 to 1
+	var center: Vector2 = _explosion_center
+
+	# Flash: bright white fill that fades fast
+	if t < 0.15:
+		var flash_alpha: float = (1.0 - t / 0.15) * 0.6
+		var flash_radius: float = EXPLOSION_MAX_RADIUS * 0.4
+		draw_circle(center, flash_radius, Color(1.0, 1.0, 0.9, flash_alpha))
+
+	# Expanding fireball core (orange/red fill, fades out)
+	var core_radius: float = EXPLOSION_MAX_RADIUS * 0.6 * t
+	var core_alpha: float = (1.0 - t) * 0.7
+	draw_circle(center, core_radius, Color(1.0, 0.4, 0.1, core_alpha))
+
+	# Inner hot ring
+	var inner_radius: float = EXPLOSION_MAX_RADIUS * 0.5 * t
+	var inner_alpha: float = (1.0 - t) * 0.9
+	draw_arc(center, inner_radius, 0, TAU, 32, Color(1.0, 0.8, 0.2, inner_alpha), 3.0)
+
+	# Outer blast ring (expands faster, thinner)
+	var outer_radius: float = EXPLOSION_MAX_RADIUS * t
+	var outer_alpha: float = (1.0 - t) * 0.6
+	draw_arc(center, outer_radius, 0, TAU, 48, Color(1.0, 0.3, 0.0, outer_alpha), 2.0)
+
+	# Outermost shockwave ring
+	if t > 0.1:
+		var shock_t: float = (t - 0.1) / 0.9
+		var shock_radius: float = EXPLOSION_MAX_RADIUS * 1.3 * shock_t
+		var shock_alpha: float = (1.0 - shock_t) * 0.3
+		draw_arc(center, shock_radius, 0, TAU, 48, Color(1.0, 0.6, 0.3, shock_alpha), 1.5)
 
 func _draw_pitch() -> void:
 	var r := _pitch_rect
