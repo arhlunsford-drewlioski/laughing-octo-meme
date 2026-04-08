@@ -2,11 +2,11 @@ extends Node
 ## Tracks tournament run state. Autoloaded as RunManager.
 
 # Gold economy
-const GOLD_WIN: int = 5
-const GOLD_DRAW: int = 2
-const GOLD_LOSS: int = 1
-const GOLD_PER_GOAL: int = 1
-const GOLD_GOAL_CAP: int = 3
+const GOLD_WIN: int = 100
+const GOLD_DRAW: int = 50
+const GOLD_LOSS: int = 25
+const GOLD_PER_GOAL: int = 10
+const GOLD_GOAL_CAP: int = 5
 
 # Run state
 var run_active: bool = false

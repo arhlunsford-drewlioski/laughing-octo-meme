@@ -24,7 +24,10 @@ func _ready() -> void:
 func setup(data: CardData, index: int) -> void:
 	card_data = data
 	card_index = index
-	_update_display()
+	if is_node_ready():
+		_update_display()
+	else:
+		ready.connect(_update_display, CONNECT_ONE_SHOT)
 
 func _update_display() -> void:
 	if card_data == null:

@@ -76,15 +76,8 @@ func refund_energy(cost: int) -> void:
 	energy_changed.emit(energy)
 
 func shift_momentum(amount: int) -> void:
-	momentum = clampi(momentum + amount, MOMENTUM_MIN, MOMENTUM_MAX)
+	momentum += amount
 	momentum_changed.emit(momentum)
-
-func add_goal(is_player: bool) -> void:
-	if is_player:
-		player_goals += 1
-	else:
-		opponent_goals += 1
-	score_changed.emit(player_goals, opponent_goals)
 
 func is_match_over() -> bool:
 	return current_round >= MAX_ROUNDS and current_phase == Phase.ROUND_END

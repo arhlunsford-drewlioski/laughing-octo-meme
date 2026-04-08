@@ -13,7 +13,7 @@ enum Role {
 }
 
 # Minimum ticks a goblin keeps their role before reassignment
-const ROLE_STICKY_TICKS: int = 3
+const ROLE_STICKY_TICKS: int = 2
 
 # ── State ──────────────────────────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ func update(goblin_states: Dictionary, ball: Ball,
 
 # ── Role Assignment ────────────────────────────────────────────────────────
 
-func _assign_team_roles(formation: Formation, opp_formation: Formation,
+func _assign_team_roles(formation: Formation, _opp_formation: Formation,
 		goblin_states: Dictionary, ball: Ball, is_home: bool) -> void:
 	var all_goblins: Array = formation.get_all()
 	var assigned: Dictionary = {}  # GoblinData -> true (already assigned this tick)
@@ -68,7 +68,7 @@ func _assign_team_roles(formation: Formation, opp_formation: Formation,
 			_set_role(ball.owner, Role.BALL_CARRIER)
 			assigned[ball.owner] = true
 
-	# 2. Loose ball -> assign exactly 1 chaser
+	# 2. Loose ball -> ANYONE chases (ball on the ground = survival, not formation)
 	var is_loose: bool = ball.state == Ball.BallState.LOOSE or ball.state == Ball.BallState.DEAD
 	if is_loose:
 		var chaser := _find_nearest_unassigned(all_goblins, goblin_states, assigned, ball.x, ball.y)
@@ -76,44 +76,20 @@ func _assign_team_roles(formation: Formation, opp_formation: Formation,
 			_set_role(chaser, Role.LOOSE_CHASER)
 			assigned[chaser] = true
 
-	# 3. Opponent has ball -> assign presser + cover presser
+	# 3. Opponent has ball -> ONE presser from attack/midfield zone only
+	#    Defenders NEVER press. They hold the line. This is the #1 rule.
 	var opponent_has_ball: bool = false
 	if ball.owner and goblin_states.has(ball.owner):
 		var owner_gs: Dictionary = goblin_states[ball.owner]
 		opponent_has_ball = bool(owner_gs["is_home"]) != is_home
 
 	if opponent_has_ball:
-		# Presser: nearest non-keeper to ball
-		var presser := _find_nearest_unassigned(all_goblins, goblin_states, assigned, ball.x, ball.y)
+		var presser := _find_nearest_pressable(all_goblins, goblin_states, assigned, ball.x, ball.y)
 		if presser:
 			_set_role(presser, Role.PRESSER)
 			assigned[presser] = true
 
-		# Cover presser: 2nd nearest
-		var cover := _find_nearest_unassigned(all_goblins, goblin_states, assigned, ball.x, ball.y)
-		if cover:
-			_set_role(cover, Role.COVER_PRESSER)
-			assigned[cover] = true
-
-	# 4. Marking: when opponent has ball, defenders/midfielders mark opponents
-	if opponent_has_ball:
-		# opp_formation is now passed as a parameter
-		# Markers will be assigned from remaining unassigned outfield players
-		# Limit to 2 markers max so some hold shape
-		var markers_assigned: int = 0
-		for goblin in all_goblins:
-			if assigned.has(goblin) or goblin.position == "keeper":
-				continue
-			if markers_assigned >= 2:
-				break
-			# Only mark if they're in a defensive/midfield zone
-			var zone: String = PositionDatabase.get_zone(goblin.position)
-			if zone == "defense" or zone == "midfield":
-				_set_role(goblin, Role.MARKER)
-				assigned[goblin] = true
-				markers_assigned += 1
-
-	# 5. Everyone else -> holder
+	# 4. Everyone else -> holder (STATE 6 handles all defensive positioning)
 	for goblin in all_goblins:
 		if not assigned.has(goblin):
 			_set_role(goblin, Role.HOLDER)
@@ -136,6 +112,41 @@ func _set_role(goblin: GoblinData, role: Role) -> void:
 
 	_roles[goblin] = role
 	_role_ticks[goblin] = ROLE_STICKY_TICKS
+
+func _find_nearest_pressable(goblins: Array, goblin_states: Dictionary,
+		assigned: Dictionary, tx: float, ty: float) -> GoblinData:
+	## Only attackers and midfielders can press/chase. Defenders hold the line.
+	## Prefer goblins whose zone rect contains the ball.
+	var best: GoblinData = null
+	var best_score: float = 999.0
+	for goblin in goblins:
+		if assigned.has(goblin):
+			continue
+		if goblin.position == "keeper":
+			continue
+		# DEFENDERS NEVER PRESS
+		var zone: String = PositionDatabase.get_zone(goblin.position)
+		if zone == "defense":
+			continue
+		if not goblin_states.has(goblin):
+			continue
+		var gs: Dictionary = goblin_states[goblin]
+		var d: float = _dist(float(gs["x"]), float(gs["y"]), tx, ty)
+
+		# Prefer goblins whose zone contains the ball (big bonus)
+		var is_left: bool = bool(gs.get("is_left_flank", false))
+		var is_home: bool = bool(gs["is_home"])
+		var rect: Array = PositionDatabase.get_zone_rect_flipped(
+			goblin.position, false, is_home, is_left)
+		var ball_in_zone: bool = (
+			tx >= float(rect[0]) - 0.05 and tx <= float(rect[1]) + 0.05 and
+			ty >= float(rect[2]) - 0.05 and ty <= float(rect[3]) + 0.05)
+		var score: float = d + (0.0 if ball_in_zone else 0.5)
+
+		if score < best_score:
+			best_score = score
+			best = goblin
+	return best
 
 func _find_nearest_unassigned(goblins: Array, goblin_states: Dictionary,
 		assigned: Dictionary, tx: float, ty: float) -> GoblinData:

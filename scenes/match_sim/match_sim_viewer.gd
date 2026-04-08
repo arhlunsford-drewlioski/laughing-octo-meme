@@ -30,7 +30,7 @@ var _away_possession_ticks: int = 0
 var _last_ball_owner_team: String = ""
 
 func _ready() -> void:
-	back_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn"))
+	back_btn.pressed.connect(_on_back_pressed)
 	speed_btn.pressed.connect(_cycle_speed)
 
 	UITheme.style_button(back_btn, false)
@@ -74,8 +74,16 @@ func _ready() -> void:
 	_setup_and_start()
 
 func _setup_and_start() -> void:
-	var player_roster := GoblinDatabase.full_roster().slice(0, 6)
-	var opponent_roster := GoblinDatabase.opponent_roster()
+	var player_roster: Array[GoblinData]
+	var opponent_roster: Array[GoblinData]
+
+	if RunManager.run_active:
+		player_roster = GameManager.selected_roster.slice(0, 6)
+		opponent_roster = RunManager.get_current_opponent_roster()
+	else:
+		player_roster = GoblinDatabase.full_roster().slice(0, 6)
+		opponent_roster = GoblinDatabase.opponent_roster()
+
 	home_formation = GoblinDatabase.build_default_formation(player_roster)
 	away_formation = GoblinDatabase.build_default_formation(opponent_roster)
 
@@ -86,6 +94,10 @@ func _setup_and_start() -> void:
 	animated_pitch.apply_snapshot(snapshot)
 	_update_ui(snapshot)
 
+	if RunManager.run_active:
+		var opp_name := RunManager.get_current_opponent_name()
+		var stage := RunManager.get_stage_name()
+		_log("[color=yellow]%s - vs %s[/color]" % [stage, opp_name])
 	_log("[color=yellow]KICK OFF[/color]")
 
 func _process(delta: float) -> void:
@@ -316,6 +328,17 @@ func _on_match_over(snapshot: Dictionary) -> void:
 	else:
 		_log("[color=yellow]DRAW![/color]")
 
+	if RunManager.run_active:
+		var prev_gold: int = RunManager.gold
+		RunManager.record_match_result(int(sc[0]), int(sc[1]))
+		RunManager.simulate_remaining_group_matches()
+		RunManager.advance_tournament()
+		var gold_earned: int = RunManager.gold - prev_gold
+		_log("[color=#ffd700]Gold earned: %d (Total: %d)[/color]" % [gold_earned, RunManager.gold])
+		back_btn.text = "CONTINUE"
+	else:
+		back_btn.text = "BACK"
+
 func _cycle_speed() -> void:
 	_speed_index = (_speed_index + 1) % SPEED_OPTIONS.size()
 	_speed_multiplier = SPEED_OPTIONS[_speed_index]
@@ -364,10 +387,19 @@ func _on_multiball_pressed() -> void:
 	var snapshot := sim._build_snapshot()
 	_process_events(snapshot)
 
+func _on_back_pressed() -> void:
+	if RunManager.run_active and sim != null and sim.is_match_over():
+		get_tree().change_scene_to_file("res://scenes/screens/shop.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")
+
 func _input(event: InputEvent) -> void:
 	if _fireball_targeting:
 		if event.is_action_pressed("ui_cancel") or (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT):
 			_cancel_fireball_targeting()
 			return
 	if event.is_action_pressed("ui_cancel"):
-		get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")
+		if sim != null and sim.is_match_over():
+			_on_back_pressed()
+		elif not RunManager.run_active:
+			get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")

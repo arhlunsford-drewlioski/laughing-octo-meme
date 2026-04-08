@@ -10,48 +10,37 @@ const TICKS_PER_SECOND: float = 10.0
 const TICK_DELTA: float = 1.0 / TICKS_PER_SECOND  # 0.1s real time
 const MATCH_DURATION: float = 90.0  # match minutes
 const MINUTES_PER_TICK: float = 0.14  # slower match clock so build-up reads on screen
-const MOVEMENT_SPEED: float = 0.0080  # base jog speed
-const SPRINT_MULTIPLIER: float = 1.25  # sprinting
+const MOVEMENT_SPEED: float = 0.0090  # base jog speed
+const SPRINT_MULTIPLIER: float = 1.40  # sprinting - visibly faster than jogging
 const PASS_SPEED: float = 0.80  # readable pass speed
 const SHOT_SPEED: float = 1.20
-const LOOSE_BALL_RANGE: float = 0.15  # auto-claim if ball rolls near player
+const LOOSE_BALL_RANGE: float = 0.09  # close enough to pick up a loose ball
 const TACKLE_RANGE: float = 0.055  # tight - must be very close
+const CHALLENGE_RANGE: float = 0.075  # wider - shoulder-to-shoulder dribble contests
 const SHOT_RANGE: float = 0.30
-const PASS_RECEIVE_RADIUS: float = 0.08
-const PASS_INTERCEPT_RADIUS: float = 0.05
-const PASS_SEGMENT_RADIUS: float = 0.035
+const PASS_RECEIVE_RADIUS: float = 0.06
+const PASS_INTERCEPT_RADIUS: float = 0.04
+const PASS_SEGMENT_RADIUS: float = 0.025
 const RECEIVE_LOOKAHEAD: float = 0.18
 const KICKOFF_HOLD_DURATION: int = 10  # 1.0s hold before kickoff pass
 const GOAL_CELEBRATION_TICKS: int = 20  # 2.0s celebration freeze after goal
 
 # Velocity / momentum
-const ACCEL_RATE: float = 0.50          # lerp toward max speed per tick
-const DECEL_RATE: float = 0.55          # lerp for braking - stop decisively, don't glide
-const STEER_RATE: float = 0.30          # lerp for direction change per tick (less twitchy)
-const DIRECTION_CHANGE_THRESHOLD: float = 0.15  # dot product < this = big turn (~80 degrees)
-const COMMIT_TICKS_ON_TURN: int = 4     # ticks of reduced speed after major direction change
-const COMMIT_TICKS_CHASE: int = 3       # ticks a loose ball chaser is locked to direction
-const COMMIT_SPEED_FACTOR: float = 0.55 # speed multiplier during commitment
+const ACCEL_RATE: float = 0.55          # lerp toward max speed per tick
+const DECEL_RATE: float = 0.70          # lerp for braking - stop fast, no sliding
+const STEER_RATE: float = 0.50          # lerp for direction change per tick (responsive)
+const DIRECTION_CHANGE_THRESHOLD: float = 0.10  # dot product < this = big turn
+const COMMIT_TICKS_ON_TURN: int = 2     # brief slowdown on direction change
+const COMMIT_TICKS_CHASE: int = 2       # brief lock for loose ball chaser
+const COMMIT_SPEED_FACTOR: float = 0.65 # speed during commitment (less punishing)
 
-enum TeamPhase {
-	BUILD_UP,
-	FINAL_THIRD,
-	COUNTER_ATTACK,
-	DEFENSIVE_BLOCK,
-	COUNTER_PRESS,
-	LOOSE_BALL,
-}
 
-# Ideal position tracking - simulation snaps, visual layer smooths
-const IDEAL_SMOOTH: float = 1.0    # snap to position (visual layer handles smoothing)
-const URGENT_SMOOTH: float = 1.0   # chase/tackle/press - snap
-const CARRIER_SMOOTH: float = 1.0  # carrier - snap
 
 # Arrival behavior
-const SLOWDOWN_RADIUS: float = 0.05
-const ARRIVAL_RADIUS: float = 0.008
+const SLOWDOWN_RADIUS: float = 0.06
+const ARRIVAL_RADIUS: float = 0.006
 const MIN_DRIFT_SPEED: float = 0.0  # no drift - stop cleanly at target
-const IDEAL_DEAD_ZONE: float = 0.055  # goblins hold position until target moves significantly
+const IDEAL_DEAD_ZONE: float = 0.020  # tight dead zone - goblins react to small offset changes
 
 # Collision / Separation
 const SEPARATION_DIST: float = 0.08   # same-team spacing (don't bunch)
@@ -91,9 +80,10 @@ const AWAY_KICKOFF_ZONE_X := {
 
 const ZONE_Y_SPREAD := {
 	1: [0.5],
-	2: [0.25, 0.75],
-	3: [0.15, 0.50, 0.85],
+	2: [0.30, 0.70],
+	3: [0.18, 0.50, 0.82],
 }
+
 
 # ── State ───────────────────────────────────────────────────────────────────
 
@@ -122,21 +112,14 @@ var _tick_events: Array = []
 # Team coordinator (role assignment)
 var coordinator: TeamCoordinator = TeamCoordinator.new()
 
-# Off-ball runs
-var _active_runs: Dictionary = {}
-var _home_runners: int = 0
-var _away_runners: int = 0
+# Possession tracking
 var _prev_home_has_ball: bool = false
 var _prev_away_has_ball: bool = false
-var _home_phase: TeamPhase = TeamPhase.BUILD_UP
-var _away_phase: TeamPhase = TeamPhase.DEFENSIVE_BLOCK
 
 # Transient action targets (consumed by _update_ideal_positions each tick)
 var _action_targets: Dictionary = {}
 # Persistent carrier target - survives cooldown so carrier keeps moving
 var _carrier_target: Dictionary = {}  # {"x": float, "y": float}
-# Persistent move targets - survive between AI decisions so goblins don't drift
-var _move_targets: Dictionary = {}  # GoblinData -> {"x": float, "y": float}
 # Ball intent while travelling: pass/cross metadata used for live contests
 var _ball_intent: Dictionary = {}
 
@@ -184,10 +167,8 @@ func start_match(home: Formation, away: Formation) -> Dictionary:
 	match_over = false
 	_tick_events.clear()
 	goblin_states.clear()
-	_active_runs.clear()
 	_action_targets.clear()
 	_carrier_target.clear()
-	_move_targets.clear()
 	_ball_intent.clear()
 	_pending_removals.clear()
 	fireball_available = [true, false]
@@ -196,8 +177,6 @@ func start_match(home: Formation, away: Formation) -> Dictionary:
 	_haste_ticks = [0, 0]
 	_haste_targets = [[], []]
 	_extra_balls.clear()
-	_home_phase = TeamPhase.BUILD_UP
-	_away_phase = TeamPhase.DEFENSIVE_BLOCK
 	_kickoff_hold_ticks = 0
 	_kickoff_kicker = null
 	_kickoff_outlet = null
@@ -230,12 +209,9 @@ func _init_goblin_positions(formation: Formation, is_home: bool) -> void:
 				"home_y": spawn.y,
 				"ideal_x": spawn.x,
 				"ideal_y": spawn.y,
-				"roam_x": spawn.x,
-				"roam_y": spawn.y,
-				"roam_timer": randf_range(1.0, 2.5),
-				"support_x": spawn.x,
-				"support_y": spawn.y,
-				"support_timer": randf_range(0.8, 1.8),
+				"run_target_x": spawn.x,
+				"run_target_y": spawn.y,
+				"run_ticks": 0,
 				"ball_control_time": 0.0,
 				"settle_time": 0.0,
 				"cooldown": 0.0,
@@ -247,6 +223,10 @@ func _init_goblin_positions(formation: Formation, is_home: bool) -> void:
 				"vel_x": 0.0,
 				"vel_y": 0.0,
 				"commit_ticks": 0,
+				"is_left_flank": spawn.y < 0.5,
+				"chaos_wander_x": 0.0,
+				"chaos_wander_y": 0.0,
+				"chaos_wander_ticks": 0,
 			}
 
 func _kickoff_spawn_position(goblin: GoblinData, zone_name: String, is_home: bool,
@@ -299,12 +279,9 @@ func _apply_kickoff_reset(formation: Formation, is_home: bool) -> void:
 			gs["home_y"] = spawn.y
 			gs["ideal_x"] = spawn.x
 			gs["ideal_y"] = spawn.y
-			gs["roam_x"] = spawn.x
-			gs["roam_y"] = spawn.y
-			gs["roam_timer"] = randf_range(1.5, 3.0)
-			gs["support_x"] = spawn.x
-			gs["support_y"] = spawn.y
-			gs["support_timer"] = randf_range(1.0, 2.0)
+			gs["run_target_x"] = spawn.x
+			gs["run_target_y"] = spawn.y
+			gs["run_ticks"] = 0
 			gs["ball_control_time"] = 0.0
 			gs["settle_time"] = 0.0
 			gs["cooldown"] = 0.5
@@ -655,14 +632,10 @@ func _process_goblin_action(goblin: GoblinData) -> void:
 			if int(gs.get("commit_ticks", 0)) <= 0:
 				gs["commit_ticks"] = COMMIT_TICKS_CHASE
 		GoblinAI.Action.MOVE_TO_POSITION:
+			# Transient only - cleared each tick, goblin returns to STATE 7 next tick
 			_set_action_target(goblin, decision.target_x, decision.target_y)
-			# Persist move target so it survives between AI re-evaluations
-			_move_targets[goblin] = {"x": decision.target_x, "y": decision.target_y}
 		GoblinAI.Action.IDLE:
-			# Clear persistent target when idle (own team has ball)
-			_move_targets.erase(goblin)
-		_:
-			_move_targets.erase(goblin)
+			pass  # Fall through to STATE 7 (hold position + offsets)
 
 func _execute_pass(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 	if ball.owner != goblin:
@@ -827,7 +800,7 @@ func _execute_dribble(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 		var opp_gs: Dictionary = goblin_states[opp]
 		if _gf(opp_gs, "cooldown") > 0.0:
 			continue
-		if _dist(_gf(gs, "x"), _gf(gs, "y"), _gf(opp_gs, "x"), _gf(opp_gs, "y")) < TACKLE_RANGE:
+		if _dist(_gf(gs, "x"), _gf(gs, "y"), _gf(opp_gs, "x"), _gf(opp_gs, "y")) < CHALLENGE_RANGE:
 			var dribble_stat: float = goblin.get_stat("speed") + goblin.get_stat("chaos") * 0.5
 			var defend_stat: float = opp.get_stat("defense") + opp.get_stat("strength") * 0.5
 			var result: float = _stat_contest(dribble_stat, defend_stat, float(goblin.get_stat("chaos")), float(opp.get_stat("chaos")))
@@ -885,11 +858,11 @@ func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 
 func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool) -> void:
 	## After a successful tackle or foul, roll for injury/death.
-	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.015
+	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.022
 	if was_foul:
-		injury_chance += 0.10
+		injury_chance += 0.15
 	if tackler.position == "enforcer":
-		injury_chance += 0.05
+		injury_chance += 0.08
 	if randf() >= injury_chance:
 		return
 
@@ -933,9 +906,7 @@ func _remove_goblin_from_match(goblin: GoblinData) -> void:
 
 	# Clean up all references
 	goblin_states.erase(goblin)
-	_active_runs.erase(goblin)
 	_action_targets.erase(goblin)
-	_move_targets.erase(goblin)
 	coordinator._roles.erase(goblin)
 	coordinator._role_ticks.erase(goblin)
 
@@ -1120,286 +1091,209 @@ func _set_action_target(goblin: GoblinData, tx: float, ty: float) -> void:
 # ── Ideal Position Update ──────────────────────────────────────────────────
 
 func _update_ideal_positions() -> void:
-	## Computes a raw target for every goblin, then smoothly lerps their
-	## persistent ideal_x/ideal_y toward it. This is the core anti-yo-yo fix.
+	## Hockey-style positioning: fixed base positions + simple offsets.
+	## Every goblin stands at their formation spot unless they have a reason to move.
 
-	# Determine possession
+	# ── Who has the ball? ──
 	var home_has_ball: bool = false
 	var away_has_ball: bool = false
 	if ball.owner and goblin_states.has(ball.owner):
-		var owner_gs: Dictionary = goblin_states[ball.owner]
-		if _gb(owner_gs, "is_home"):
+		if _gb(goblin_states[ball.owner], "is_home"):
 			home_has_ball = true
 		else:
 			away_has_ball = true
-
 	var is_loose: bool = ball.state == Ball.BallState.LOOSE or ball.state == Ball.BallState.DEAD
 
 	# Detect turnovers
-	var home_won_ball: bool = not _prev_home_has_ball and home_has_ball and not is_loose
-	var away_won_ball: bool = not _prev_away_has_ball and away_has_ball and not is_loose
 	var home_lost_ball: bool = _prev_home_has_ball and not home_has_ball and not is_loose
 	var away_lost_ball: bool = _prev_away_has_ball and not away_has_ball and not is_loose
 	_prev_home_has_ball = home_has_ball
 	_prev_away_has_ball = away_has_ball
 
-	# Tick down active runs
-	_home_runners = 0
-	_away_runners = 0
-	var expired_runs: Array = []
-	for goblin in _active_runs:
-		var run: Dictionary = _active_runs[goblin]
-		run["ticks_remaining"] = int(run["ticks_remaining"]) - 1
-		if int(run["ticks_remaining"]) <= 0:
-			expired_runs.append(goblin)
-		else:
-			if goblin_states.has(goblin) and _gb(goblin_states[goblin], "is_home"):
-				_home_runners += 1
-			else:
-				_away_runners += 1
-	for goblin in expired_runs:
-		_active_runs.erase(goblin)
-
-	# Cancel non-recovery runs on turnover
+	# Cancel runs on turnover
 	if home_lost_ball or away_lost_ball:
-		var cancel: Array = []
-		for goblin in _active_runs:
-			var run: Dictionary = _active_runs[goblin]
-			if String(run["type"]) != "recovery":
-				var gs2: Dictionary = goblin_states[goblin]
-				var lost_home: bool = home_lost_ball and _gb(gs2, "is_home")
-				var lost_away: bool = away_lost_ball and not _gb(gs2, "is_home")
-				if lost_home or lost_away:
-					cancel.append(goblin)
-		for goblin in cancel:
-			_active_runs.erase(goblin)
+		for goblin in goblin_states:
+			var gs2: Dictionary = goblin_states[goblin]
+			if int(gs2.get("run_ticks", 0)) <= 0:
+				continue
+			var is_h: bool = _gb(gs2, "is_home")
+			if (home_lost_ball and is_h) or (away_lost_ball and not is_h):
+				gs2["run_ticks"] = 0
 
-	# Pre-compute carrier info for run triggers
 	var carrier_x: float = ball.x
 	var carrier_y: float = ball.y
 	var carrier_is_home: bool = false
-	var carrier_under_pressure: bool = false
-	var carrier_on_flank: bool = false
-	var carrier_in_midfield: bool = false
 	if ball.owner and goblin_states.has(ball.owner):
 		var ogs: Dictionary = goblin_states[ball.owner]
 		carrier_x = _gf(ogs, "x")
 		carrier_y = _gf(ogs, "y")
 		carrier_is_home = _gb(ogs, "is_home")
-		carrier_on_flank = absf(carrier_y - 0.5) > 0.20
-		carrier_in_midfield = carrier_x > 0.30 and carrier_x < 0.70
-		var opp_formation2: Formation = away_formation if carrier_is_home else home_formation
-		for opp in opp_formation2.get_all():
-			if goblin_states.has(opp):
-				var opgs: Dictionary = goblin_states[opp]
-				if _dist(_gf(opgs, "x"), _gf(opgs, "y"), carrier_x, carrier_y) < 0.15:
-					carrier_under_pressure = true
-					break
 
-	_home_phase = _determine_team_phase(true, home_has_ball, away_has_ball, home_won_ball, home_lost_ball,
-			is_loose, carrier_x, carrier_under_pressure)
-	_away_phase = _determine_team_phase(false, away_has_ball, home_has_ball, away_won_ball, away_lost_ball,
-			is_loose, carrier_x, carrier_under_pressure)
+	# Count runners for run trigger cap
+	var home_runners: int = 0
+	var away_runners: int = 0
+	for goblin in goblin_states:
+		if int(goblin_states[goblin].get("run_ticks", 0)) > 0:
+			if _gb(goblin_states[goblin], "is_home"):
+				home_runners += 1
+			else:
+				away_runners += 1
 
-	# Update each goblin's ideal position
+	# ── Per goblin ──
 	for goblin in goblin_states:
 		var gs: Dictionary = goblin_states[goblin]
 		var is_home: bool = _gb(gs, "is_home")
-		var raw_x: float
-		var raw_y: float
-		var smooth: float = IDEAL_SMOOTH
-		gs["sprinting"] = false  # default: jog
+		var my_team_has_ball: bool = (home_has_ball and is_home) or (away_has_ball and not is_home)
+		gs["sprinting"] = false
 
-		# ── Priority 1: Ball carrier ──
+		# ── STATE 1: Ball carrier ──
 		if ball.owner == goblin:
-			# Keepers with ball: hold position, don't dribble upfield
 			if goblin.position == "keeper":
-				raw_x = _gf(gs, "home_x")
-				raw_y = clampf(_gf(gs, "y"), 0.40, 0.60)
-				smooth = CARRIER_SMOOTH
+				gs["ideal_x"] = _gf(gs, "home_x")
+				gs["ideal_y"] = clampf(_gf(gs, "y"), 0.40, 0.60)
 			elif _action_targets.has(goblin):
-				# Fresh dribble target - save it and use it
 				_carrier_target = _action_targets[goblin].duplicate()
-				raw_x = _gf(_carrier_target, "x")
-				raw_y = _gf(_carrier_target, "y")
+				gs["ideal_x"] = _gf(_carrier_target, "x")
+				gs["ideal_y"] = _gf(_carrier_target, "y")
 			elif not _carrier_target.is_empty():
-				# On cooldown - keep moving toward last dribble target
-				raw_x = _gf(_carrier_target, "x")
-				raw_y = _gf(_carrier_target, "y")
+				gs["ideal_x"] = _gf(_carrier_target, "x")
+				gs["ideal_y"] = _gf(_carrier_target, "y")
 			else:
-				# No target at all - dribble forward
-				var fwd2: float = 1.0 if is_home else -1.0
-				raw_x = clampf(_gf(gs, "x") + fwd2 * 0.15, 0.05, 0.95)
-				raw_y = _gf(gs, "y")
-			smooth = CARRIER_SMOOTH
+				var fwd: float = 1.0 if is_home else -1.0
+				gs["ideal_x"] = clampf(_gf(gs, "x") + fwd * 0.15, 0.05, 0.95)
+				gs["ideal_y"] = _gf(gs, "y")
 			if goblin.position != "keeper":
 				gs["sprinting"] = true
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 			continue
 
-		# ── Priority 2: AI action target (chase, tackle, etc.) ──
-		if _action_targets.has(goblin):
-			raw_x = _gf(_action_targets[goblin], "x")
-			raw_y = _gf(_action_targets[goblin], "y")
-			smooth = URGENT_SMOOTH
-			gs["sprinting"] = true
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
-			continue
-
-		# ── Priority 2a: Persistent move target (survives between AI ticks) ──
-		if not _action_targets.has(goblin) and _move_targets.has(goblin):
-			raw_x = _gf(_move_targets[goblin], "x")
-			raw_y = _gf(_move_targets[goblin], "y")
-			smooth = IDEAL_SMOOTH
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
-			continue
-
-		# ── Priority 2b: intended receiver attacks the pass while it is travelling ──
+		# ── STATE 2: Pass receiver ──
 		if ball.state == Ball.BallState.TRAVELLING and _ball_intent.get("target_goblin", null) == goblin:
-			var receive_target := _get_receive_target()
-			raw_x = receive_target.x
-			raw_y = receive_target.y
-			smooth = URGENT_SMOOTH
+			var rt := _get_receive_target()
+			gs["ideal_x"] = rt.x
+			gs["ideal_y"] = rt.y
 			gs["sprinting"] = true
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 			continue
 
-		# ── Priority 3: Active run ──
-		if _active_runs.has(goblin):
-			var run: Dictionary = _active_runs[goblin]
-			raw_x = float(run["target_x"])
-			raw_y = float(run["target_y"])
+		# ── STATE 3: Urgent AI action (chase/tackle/press) ──
+		if _action_targets.has(goblin):
+			gs["ideal_x"] = _gf(_action_targets[goblin], "x")
+			gs["ideal_y"] = _gf(_action_targets[goblin], "y")
 			gs["sprinting"] = true
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
 			continue
 
-		# ── Check run triggers ──
-		var my_team_has_ball: bool = (home_has_ball and is_home) or (away_has_ball and not is_home)
-		var can_run: bool = goblin.position != "keeper"
-		var team_runners: int = _home_runners if is_home else _away_runners
-		var team_phase: TeamPhase = _home_phase if is_home else _away_phase
-		var in_poss: bool = my_team_has_ball and not is_loose
+		# ── STATE 4: Tactical run (ticking down) ──
+		var run_ticks: int = int(gs.get("run_ticks", 0))
+		if run_ticks > 0:
+			gs["run_ticks"] = run_ticks - 1
+			gs["ideal_x"] = _gf(gs, "run_target_x")
+			gs["ideal_y"] = _gf(gs, "run_target_y")
+			gs["sprinting"] = true
+			continue
 
-		# Force immediate reposition on possession change (react to turnovers)
-		var possession_changed: bool = home_won_ball or away_won_ball or home_lost_ball or away_lost_ball
-		gs["roam_timer"] = _gf(gs, "roam_timer") - TICK_DELTA
-		if _gf(gs, "roam_timer") <= 0.0 or possession_changed:
-			_refresh_roam_target(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
-		gs["support_timer"] = _gf(gs, "support_timer") - TICK_DELTA
-		if _gf(gs, "support_timer") <= 0.0 or possession_changed:
-			_refresh_support_target(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
+		# ── STATE 5: Check if a new run should start ──
+		var team_runners: int = home_runners if is_home else away_runners
+		if goblin.position != "keeper" and my_team_has_ball and not is_loose and team_runners < 2 and carrier_is_home == is_home:
+			if _check_run_trigger(goblin, gs, is_home, carrier_x, carrier_y):
+				if is_home: home_runners += 1
+				else: away_runners += 1
+				gs["sprinting"] = true
+				continue
 
-		if can_run and my_team_has_ball and not is_loose and team_runners < 3 and carrier_is_home == is_home:
-			var zone: String = PositionDatabase.get_zone(goblin.position)
-			var fwd: float = 1.0 if is_home else -1.0
-			var run_goal_x: float = 1.0 if is_home else 0.0
-			var speed: float = float(goblin.get_stat("speed"))
-			var shooting: float = float(goblin.get_stat("shooting"))
-			var defense: float = float(goblin.get_stat("defense"))
-			var chaos: float = float(goblin.get_stat("chaos"))
+		# ── STATE 6: ZONE-LEASH POSITIONING ──
+		# Each goblin is hard-clamped to their position's zone rectangle.
+		# The rect shifts between in-possession (pushed up) and out-of-possession (dropped back).
+		# Stats modify the ideal point within the rect. No drift possible.
+		if goblin.position == "keeper":
+			gs["ideal_x"] = _gf(gs, "home_x")
+			gs["ideal_y"] = clampf(lerpf(0.5, ball.y, 0.25), 0.38, 0.62)
+		else:
+			var in_poss: bool = my_team_has_ball and not is_loose
+			var is_left: bool = _gb(gs, "is_left_flank")
+			var rect: Array = PositionDatabase.get_zone_rect_flipped(
+				goblin.position, in_poss, is_home, is_left)
 
-			# Forward run: any attacker/midfielder can make a run toward goal
-			if zone == "attack":
-				var run_pull: float = clampf(0.34 + speed * 0.018 + shooting * 0.014, 0.30, 0.62)
-				if goblin.position == "poacher" or goblin.position == "shadow_striker":
-					run_pull += 0.06
-				elif goblin.position == "target_man" or goblin.position == "false_nine":
-					run_pull -= 0.05
-				var run_x: float = clampf(lerpf(_gf(gs, "x"), run_goal_x, run_pull), 0.10, 0.90)
-				var lane_wobble: float = 0.06 + chaos * 0.007 + speed * 0.004
-				var run_y: float = _gf(gs, "y") + randf_range(-lane_wobble, lane_wobble)
-				_start_run(goblin, "forward", run_x, clampf(run_y, 0.08, 0.92), randi_range(10 + int(speed * 0.4), 16 + int(shooting * 0.5)), is_home)
-			# Midfielders: run forward to support OR check to ball
-			elif zone == "midfield":
-				if carrier_under_pressure:
-					var check_pull: float = clampf(0.36 + defense * 0.020, 0.34, 0.58)
-					if goblin.position == "playmaker":
-						check_pull += 0.08
-					var check_x: float = lerpf(_gf(gs, "x"), carrier_x, check_pull)
-					var check_y: float = lerpf(_gf(gs, "y"), carrier_y, 0.32 + chaos * 0.01)
-					_start_run(goblin, "check_to_ball", check_x, check_y, randi_range(8, 13 + int(defense * 0.3)), is_home)
-				else:
-					var support_chance: float = 0.08 + speed * 0.018 + chaos * 0.010
-					if goblin.position == "box_to_box" or goblin.position == "attacking_mid":
-						support_chance += 0.15
-					elif goblin.position == "playmaker":
-						support_chance -= 0.03
-					if randf() < support_chance:
-						var run_x: float = clampf(_gf(gs, "x") + fwd * (0.12 + speed * 0.012), 0.10, 0.90)
-						var run_y: float = _gf(gs, "y") + randf_range(-0.06 - chaos * 0.004, 0.06 + chaos * 0.004)
-						_start_run(goblin, "forward", run_x, clampf(run_y, 0.08, 0.92), randi_range(9 + int(speed * 0.3), 16 + int(speed * 0.4)), is_home)
-			# Overlap: defenders push up
+			# Start at rect center, pull toward the ball (always tracking it)
+			var cx: float = (float(rect[0]) + float(rect[1])) * 0.5
+			var cy: float = (float(rect[2]) + float(rect[3])) * 0.5
+
+			# Use ball position for tracking, but clamp it to reasonable pitch area
+			# so corner kicks / dead balls don't drag everyone to the edge
+			var track_x: float = clampf(ball.x, 0.10, 0.90)
+			var track_y: float = clampf(ball.y, 0.12, 0.88)
+
+			# Always pull toward the ball - goblins are always reacting to it
+			# X: shift toward ball depth (compact team shape)
+			# Y: shift toward ball side (everyone slides with the play)
+			var ix: float = lerpf(cx, track_x, 0.25)
+			var iy: float = lerpf(cy, track_y, 0.20)
+
+			# Defense stat: bias toward goal-side edge of rect
+			var def_stat: float = float(goblin.get_stat("defense")) / 10.0
+			var goal_side_x: float = float(rect[0]) if is_home else float(rect[1])
+			ix = lerpf(ix, goal_side_x, def_stat * 0.25)
+
+			# Chaos stat: smooth wander within zone (updates every ~0.8s)
+			var chaos_stat: float = float(goblin.get_stat("chaos")) / 10.0
+			var wander_ticks: int = int(gs.get("chaos_wander_ticks", 0))
+			if wander_ticks <= 0 and chaos_stat > 0.2:
+				var rx: float = float(rect[1]) - float(rect[0])
+				var ry: float = float(rect[3]) - float(rect[2])
+				gs["chaos_wander_x"] = randf_range(-1.0, 1.0) * chaos_stat * rx * 0.25
+				gs["chaos_wander_y"] = randf_range(-1.0, 1.0) * chaos_stat * ry * 0.25
+				gs["chaos_wander_ticks"] = randi_range(6, 12)
 			else:
-				var overlap_chance: float = 0.04 + speed * 0.008 + chaos * 0.004
-				if goblin.position == "wing_back":
-					overlap_chance += 0.14
-				elif goblin.position == "anchor" or goblin.position == "sweeper":
-					overlap_chance -= 0.02
-				if randf() < overlap_chance:
-					var run_x: float = clampf(_gf(gs, "x") + fwd * (0.10 + speed * 0.010), 0.10, 0.90)
-					_start_run(goblin, "overlap", run_x, _gf(gs, "home_y"), randi_range(9 + int(speed * 0.3), 14 + int(speed * 0.4)), is_home)
+				gs["chaos_wander_ticks"] = wander_ticks - 1
+			ix += _gf(gs, "chaos_wander_x")
+			iy += _gf(gs, "chaos_wander_y")
 
-		# Recovery run on turnover
-		if can_run and not my_team_has_ball and not is_loose:
-			var my_team_lost: bool = (home_lost_ball and is_home) or (away_lost_ball and not is_home)
-			var zone2: String = PositionDatabase.get_zone(goblin.position)
-			if my_team_lost and zone2 == "attack" and not _active_runs.has(goblin):
-				var own_goal_x2: float = 0.0 if is_home else 1.0
-				var recover_pull: float = clampf(0.28 + float(goblin.get_stat("speed")) * 0.020 + float(goblin.get_stat("defense")) * 0.012, 0.28, 0.56)
-				var recover_x: float = lerpf(_gf(gs, "x"), own_goal_x2, recover_pull)
-				_start_run(goblin, "recovery", recover_x, _gf(gs, "home_y"), randi_range(9 + int(goblin.get_stat("speed") * 0.3), 14 + int(goblin.get_stat("defense") * 0.4)), is_home)
+			# HARD CLAMP to zone rect - the leash
+			gs["ideal_x"] = clampf(ix, float(rect[0]), float(rect[1]))
+			gs["ideal_y"] = clampf(iy, float(rect[2]), float(rect[3]))
 
-		# If a run just started, use it
-		if _active_runs.has(goblin):
-			var run: Dictionary = _active_runs[goblin]
-			raw_x = float(run["target_x"])
-			raw_y = float(run["target_y"])
-			gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-			gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
-			continue
-
-		# ── Priority 4: Slot-based positioning ──
-		var slot: Vector2 = Vector2(_gf(gs, "support_x"), _gf(gs, "support_y"))
-		raw_x = slot.x
-		raw_y = slot.y
-
-		# Loose ball: LOOSE_CHASER overrides
-		if is_loose and coordinator.get_role(goblin) == TeamCoordinator.Role.LOOSE_CHASER:
-			raw_x = ball.x
-			raw_y = ball.y
-			smooth = URGENT_SMOOTH
+		# Sprint back if far from target (recovery runs)
+		var dist_to_target: float = sqrt(
+			(_gf(gs, "x") - _gf(gs, "ideal_x")) ** 2 +
+			(_gf(gs, "y") - _gf(gs, "ideal_y")) ** 2)
+		if dist_to_target > 0.12:
 			gs["sprinting"] = true
 
-		gs["ideal_x"] = lerpf(_gf(gs, "ideal_x"), raw_x, smooth)
-		gs["ideal_y"] = lerpf(_gf(gs, "ideal_y"), raw_y, smooth)
-
-	# Keeper hard clamp - stay between the posts, on the goal line
-	for goblin2 in goblin_states:
-		if goblin2.position == "keeper":
-			var kgs: Dictionary = goblin_states[goblin2]
-			kgs["ideal_y"] = clampf(_gf(kgs, "ideal_y"), 0.38, 0.62)
-			var k_home_x: float = _gf(kgs, "home_x")
-			kgs["ideal_x"] = clampf(_gf(kgs, "ideal_x"), k_home_x - 0.015, k_home_x + 0.015)
-
-	# Clear transient action targets (consumed)
 	_action_targets.clear()
 
-func _start_run(goblin: GoblinData, type: String, tx: float, ty: float, ticks: int, is_home: bool) -> void:
-	_active_runs[goblin] = {
-		"type": type,
-		"target_x": tx,
-		"target_y": ty,
-		"ticks_remaining": ticks,
-	}
-	if is_home:
-		_home_runners += 1
-	else:
-		_away_runners += 1
+func _check_run_trigger(goblin: GoblinData, gs: Dictionary, is_home: bool,
+		carrier_x: float, carrier_y: float) -> bool:
+	## Should this goblin start a forward run? Low chance per tick = occasional bursts.
+	var zone: String = PositionDatabase.get_zone(goblin.position)
+	var fwd: float = 1.0 if is_home else -1.0
+	var speed: float = float(goblin.get_stat("speed"))
+	var chaos: float = float(goblin.get_stat("chaos"))
+
+	# Only attackers and midfielders make runs, clamped to in-possession zone rect
+	var is_left: bool = _gb(gs, "is_left_flank")
+	var rect: Array = PositionDatabase.get_zone_rect_flipped(
+		goblin.position, true, is_home, is_left)  # in-possession rect
+
+	if zone == "attack":
+		if randf() < 0.03 + speed * 0.004 + chaos * 0.003:
+			var goal_x: float = 1.0 if is_home else 0.0
+			var run_x: float = lerpf(_gf(gs, "x"), goal_x, 0.40)
+			var run_y: float = _gf(gs, "home_y") + randf_range(-0.06, 0.06)
+			gs["run_target_x"] = clampf(run_x, float(rect[0]), float(rect[1]))
+			gs["run_target_y"] = clampf(run_y, float(rect[2]), float(rect[3]))
+			gs["run_ticks"] = randi_range(12, 20)
+			gs["ideal_x"] = _gf(gs, "run_target_x")
+			gs["ideal_y"] = _gf(gs, "run_target_y")
+			return true
+	elif zone == "midfield":
+		if randf() < 0.015 + speed * 0.003 + chaos * 0.002:
+			var run_x: float = _gf(gs, "x") + fwd * 0.15
+			var run_y: float = _gf(gs, "y") + randf_range(-0.05, 0.05)
+			gs["run_target_x"] = clampf(run_x, float(rect[0]), float(rect[1]))
+			gs["run_target_y"] = clampf(run_y, float(rect[2]), float(rect[3]))
+			gs["run_ticks"] = randi_range(10, 16)
+			gs["ideal_x"] = _gf(gs, "run_target_x")
+			gs["ideal_y"] = _gf(gs, "run_target_y")
+			return true
+	return false
 
 func _get_receive_target() -> Vector2:
 	var lead_x: float = ball.x + ball.vx * RECEIVE_LOOKAHEAD
@@ -1410,357 +1304,6 @@ func _get_receive_target() -> Vector2:
 		clampf(lerpf(lead_x, target_x, 0.4), 0.02, 0.98),
 		clampf(lerpf(lead_y, target_y, 0.4), 0.05, 0.95)
 	)
-
-func _roam_weight(goblin: GoblinData, in_poss: bool) -> float:
-	match goblin.position:
-		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return 0.55 if in_poss else 0.40
-		"attacking_mid", "shadow_striker", "winger", "wing_back":
-			return 0.48 if in_poss else 0.35
-		"poacher", "striker", "midfielder", "target_man":
-			return 0.42 if in_poss else 0.30
-		"anchor", "sweeper", "enforcer":
-			return 0.20 if in_poss else 0.14
-		"keeper":
-			return 0.0
-		_:
-			return 0.36 if in_poss else 0.26
-
-func _shape_weight(goblin: GoblinData, team_phase: TeamPhase, in_poss: bool) -> float:
-	## How much formation shape dominates vs roam. Higher = more disciplined.
-	match goblin.position:
-		"keeper":
-			return 0.95
-		"anchor", "sweeper":
-			return 0.82 if in_poss else 0.90
-		"enforcer":
-			return 0.75 if in_poss else 0.85
-		"wing_back":
-			return 0.70 if in_poss else 0.78
-		"winger":
-			return 0.72 if in_poss else 0.80
-		"midfielder":
-			return 0.65 if in_poss else 0.75
-		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return 0.60 if in_poss else 0.70
-		"attacking_mid", "shadow_striker":
-			return 0.55 if in_poss else 0.65
-		"poacher", "striker", "target_man":
-			return 0.58 if in_poss else 0.68
-		_:
-			return 0.60 if in_poss else 0.70
-
-func _support_shift_limit(goblin: GoblinData, in_poss: bool) -> Vector2:
-	match goblin.position:
-		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return Vector2(0.06, 0.07) if in_poss else Vector2(0.04, 0.05)
-		"attacking_mid", "shadow_striker", "winger", "wing_back":
-			return Vector2(0.06, 0.07) if in_poss else Vector2(0.04, 0.05)
-		"poacher", "striker", "target_man", "midfielder":
-			return Vector2(0.05, 0.06) if in_poss else Vector2(0.04, 0.05)
-		"anchor", "sweeper", "enforcer":
-			return Vector2(0.04, 0.05) if in_poss else Vector2(0.03, 0.04)
-		"keeper":
-			return Vector2(0.01, 0.02)
-		_:
-			return Vector2(0.05, 0.06)
-
-func _support_refresh_time(goblin: GoblinData) -> float:
-	## How long a goblin holds position before checking for a new spot.
-	## Longer = less drift, more "planted" look.
-	match goblin.position:
-		"playmaker", "trequartista", "box_to_box":
-			return randf_range(3.0, 5.0)
-		"winger", "wing_back", "shadow_striker", "attacking_mid":
-			return randf_range(3.5, 5.5)
-		"anchor", "sweeper", "enforcer", "keeper":
-			return randf_range(5.0, 8.0)
-		_:
-			return randf_range(4.0, 6.0)
-
-func _desired_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
-		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> Vector2:
-	## All positions use the shape-aware slot system. This keeps formation
-	## integrity and prevents drift from random roam targets.
-	return _get_position_slot(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
-
-func _expand_roam_rect(rect: Array, goblin: GoblinData, in_poss: bool) -> Array:
-	var x_min: float = float(rect[0])
-	var x_max: float = float(rect[1])
-	var y_min: float = float(rect[2])
-	var y_max: float = float(rect[3])
-	# Tight expansion - roam is now secondary to shape, so keep zones small
-	var x_pad: float = 0.01
-	var y_pad: float = 0.02
-
-	match goblin.position:
-		"playmaker", "trequartista", "box_to_box", "false_nine":
-			x_pad += 0.02
-			y_pad += 0.03
-		"attacking_mid", "shadow_striker", "midfielder":
-			x_pad += 0.01
-			y_pad += 0.02
-		"winger", "wing_back":
-			x_pad += 0.01
-			y_pad += 0.01
-		"anchor", "sweeper", "enforcer":
-			pass  # no expansion
-
-	if in_poss:
-		x_pad += 0.01
-		y_pad += 0.01
-
-	return [
-		clampf(x_min - x_pad, 0.02, 0.98),
-		clampf(x_max + x_pad, 0.02, 0.98),
-		clampf(y_min - y_pad, 0.05, 0.95),
-		clampf(y_max + y_pad, 0.05, 0.95),
-	]
-
-func _refresh_roam_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
-		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> void:
-	if goblin.position == "keeper":
-		gs["roam_x"] = _gf(gs, "home_x")
-		gs["roam_y"] = _gf(gs, "home_y")
-		gs["roam_timer"] = 2.0
-		return
-
-	var is_left_flank: bool = _gf(gs, "home_y") < 0.5
-	var rect: Array = PositionDatabase.get_zone_rect_flipped(goblin.position, in_poss, is_home, is_left_flank)
-	rect = _expand_roam_rect(rect, goblin, in_poss)
-	var x_min: float = float(rect[0])
-	var x_max: float = float(rect[1])
-	var y_min: float = float(rect[2])
-	var y_max: float = float(rect[3])
-	var home_y: float = _gf(gs, "home_y")
-	var lane_bias: float = home_y
-	var ball_progress: float = _team_progress(carrier_x, is_home)
-	var progress_center: float = lerpf(x_min, x_max, 0.5)
-	var carry_pull: float = 0.0
-
-	match team_phase:
-		TeamPhase.BUILD_UP:
-			carry_pull = 0.18
-		TeamPhase.FINAL_THIRD:
-			carry_pull = 0.26
-		TeamPhase.COUNTER_ATTACK:
-			carry_pull = 0.24
-		TeamPhase.DEFENSIVE_BLOCK:
-			carry_pull = -0.02
-		TeamPhase.COUNTER_PRESS:
-			carry_pull = 0.08
-		_:
-			carry_pull = 0.0
-
-	if in_poss:
-		progress_center = lerpf(progress_center, _from_progress(ball_progress + carry_pull, is_home), 0.22)
-	else:
-		progress_center = lerpf(progress_center, _from_progress(maxf(0.10, ball_progress - 0.06), is_home), 0.14)
-
-	var target_x: float = clampf(randf_range(x_min, x_max), x_min, x_max)
-	target_x = clampf(lerpf(target_x, progress_center, 0.28), x_min, x_max)
-
-	var target_y: float = randf_range(y_min, y_max)
-	target_y = lerpf(target_y, lane_bias, 0.20)
-	target_y = lerpf(target_y, carrier_y, 0.08 if in_poss else 0.04)
-
-	match goblin.position:
-		"playmaker", "trequartista", "false_nine", "attacking_mid":
-			target_y = lerpf(target_y, carrier_y, 0.12 if in_poss else 0.06)
-		"winger", "wing_back":
-			target_y = lerpf(target_y, lane_bias, 0.70)
-		"anchor", "sweeper":
-			target_y = lerpf(target_y, 0.5, 0.35)
-		"poacher", "shadow_striker":
-			target_x = lerpf(target_x, _from_progress(minf(0.92, ball_progress + 0.10), is_home), 0.18)
-
-	# Space-seeking: bias roam target away from nearby teammate clusters
-	var my_formation2: Formation = home_formation if is_home else away_formation
-	var repel_x: float = 0.0
-	var repel_y: float = 0.0
-	var repel_count: int = 0
-	for teammate in my_formation2.get_all():
-		if teammate == goblin or teammate.position == "keeper":
-			continue
-		if not goblin_states.has(teammate):
-			continue
-		var tgs: Dictionary = goblin_states[teammate]
-		var tdx: float = target_x - _gf(tgs, "x")
-		var tdy: float = target_y - _gf(tgs, "y")
-		var tdist: float = sqrt(tdx * tdx + tdy * tdy)
-		if tdist < 0.15 and tdist > 0.001:
-			repel_x += tdx / tdist
-			repel_y += tdy / tdist
-			repel_count += 1
-	if repel_count > 0:
-		var repel_strength: float = 0.04
-		target_x += (repel_x / repel_count) * repel_strength
-		target_y += (repel_y / repel_count) * repel_strength
-
-	# Blend new target with current roam position (random walk, not teleport)
-	var prev_roam_x: float = _gf(gs, "roam_x")
-	var prev_roam_y: float = _gf(gs, "roam_y")
-	var walk_blend: float = 0.55  # how much of the new target vs current position
-	target_x = lerpf(prev_roam_x, target_x, walk_blend)
-	target_y = lerpf(prev_roam_y, target_y, walk_blend)
-
-	gs["roam_x"] = clampf(target_x, x_min, x_max)
-	gs["roam_y"] = clampf(target_y, y_min, y_max)
-	gs["roam_timer"] = randf_range(5.0, 8.0)
-	if goblin.position == "playmaker" or goblin.position == "trequartista":
-		gs["roam_timer"] = randf_range(4.0, 6.0)
-	elif goblin.position == "anchor" or goblin.position == "sweeper":
-		gs["roam_timer"] = randf_range(6.0, 10.0)
-
-func _refresh_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
-		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> void:
-	var desired: Vector2 = _desired_support_target(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
-	var current := Vector2(_gf(gs, "support_x"), _gf(gs, "support_y"))
-	var shift_limit: Vector2 = _support_shift_limit(goblin, in_poss)
-	var target_x: float = move_toward(current.x, desired.x, shift_limit.x)
-	var target_y: float = move_toward(current.y, desired.y, shift_limit.y)
-	gs["support_x"] = clampf(target_x, 0.02, 0.98)
-	gs["support_y"] = clampf(target_y, 0.05, 0.95)
-	# Refresh a bit faster when defending for reactive positioning
-	gs["support_timer"] = _support_refresh_time(goblin) * (0.7 if not in_poss else 1.0)
-
-func _determine_team_phase(is_home: bool, team_has_ball: bool, opponent_has_ball: bool,
-		won_ball: bool, lost_ball: bool, is_loose: bool, carrier_x: float,
-		carrier_under_pressure: bool) -> TeamPhase:
-	if is_loose:
-		return TeamPhase.LOOSE_BALL
-
-	var ball_progress: float = _team_progress(carrier_x, is_home)
-
-	if team_has_ball:
-		if won_ball and (ball_progress < 0.45 or carrier_under_pressure):
-			return TeamPhase.COUNTER_ATTACK
-		if ball_progress > 0.68:
-			return TeamPhase.FINAL_THIRD
-		return TeamPhase.BUILD_UP
-
-	if opponent_has_ball:
-		if lost_ball and ball_progress < 0.62:
-			return TeamPhase.COUNTER_PRESS
-		return TeamPhase.DEFENSIVE_BLOCK
-
-	return TeamPhase.LOOSE_BALL
-
-func _shape_profile(phase: TeamPhase) -> Dictionary:
-	## attack/midfield/defense = how far up the pitch (0-1 progress).
-	## width = lateral spread multiplier. compact = how much defending narrows lanes.
-	## ball_pull = how much the whole team slides toward the ball's y position.
-	match phase:
-		TeamPhase.BUILD_UP:
-			return {"attack": 0.72, "midfield": 0.50, "defense": 0.30, "width": 1.55, "compact": 0.80, "ball_pull": 0.14}
-		TeamPhase.FINAL_THIRD:
-			return {"attack": 0.86, "midfield": 0.68, "defense": 0.46, "width": 1.50, "compact": 0.75, "ball_pull": 0.16}
-		TeamPhase.COUNTER_ATTACK:
-			return {"attack": 0.82, "midfield": 0.60, "defense": 0.38, "width": 1.40, "compact": 0.70, "ball_pull": 0.12}
-		TeamPhase.COUNTER_PRESS:
-			return {"attack": 0.58, "midfield": 0.46, "defense": 0.28, "width": 1.20, "compact": 0.75, "ball_pull": 0.18}
-		TeamPhase.DEFENSIVE_BLOCK:
-			return {"attack": 0.42, "midfield": 0.28, "defense": 0.15, "width": 1.15, "compact": 0.72, "ball_pull": 0.20}
-		_:
-			return {"attack": 0.58, "midfield": 0.42, "defense": 0.26, "width": 1.35, "compact": 0.72, "ball_pull": 0.14}
-
-func _team_progress(x: float, is_home: bool) -> float:
-	return clampf(x, 0.0, 1.0) if is_home else clampf(1.0 - x, 0.0, 1.0)
-
-func _from_progress(progress: float, is_home: bool) -> float:
-	return clampf(progress, 0.02, 0.98) if is_home else clampf(1.0 - progress, 0.02, 0.98)
-
-# ── Zone-Rect Helpers ──────────────────────────────────────────────────────
-
-func _get_position_slot(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
-		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> Vector2:
-	## Shape-aware anchor positioning. Players keep lanes, but the whole side
-	## shifts by phase, ball side, and position identity.
-	var zone: String = PositionDatabase.get_zone(goblin.position)
-	var home_y: float = _gf(gs, "home_y")
-	var lane_offset: float = home_y - 0.5
-	var shape: Dictionary = _shape_profile(team_phase)
-	var ball_progress: float = _team_progress(carrier_x, is_home)
-	if zone == "goal":
-		var keeper_progress: float = 0.05 + maxf(0.0, ball_progress - 0.55) * 0.02
-		return Vector2(_from_progress(keeper_progress, is_home), clampf(lerpf(0.5, ball.y, 0.25), 0.40, 0.60))
-	var role_progress: float = float(shape[zone])
-	var width_scale: float = float(shape["width"])
-	var compactness: float = float(shape["compact"])
-	var ball_pull: float = float(shape["ball_pull"])
-	var progress: float = role_progress
-	var target_y: float = 0.5 + lane_offset * width_scale
-
-	# Ball-side shift: whole team slides toward the ball's y (like real football)
-	var ball_shift_y: float = (carrier_y - 0.5) * ball_pull
-
-	if in_poss:
-		match zone:
-			"attack":
-				progress = maxf(progress, ball_progress + 0.08)
-				target_y = 0.5 + lane_offset * width_scale * 1.08 + ball_shift_y
-			"midfield":
-				progress = lerpf(progress, ball_progress + 0.02, 0.35)
-				target_y = 0.5 + lane_offset * width_scale * 0.95 + ball_shift_y
-			"defense":
-				progress += maxf(0.0, ball_progress - 0.45) * 0.22
-				target_y = 0.5 + lane_offset * width_scale * 0.80 + ball_shift_y * 0.7
-	else:
-		match zone:
-			"attack":
-				progress = lerpf(progress, 0.52, 0.35)
-				target_y = 0.5 + lane_offset * width_scale * compactness + ball_shift_y * 0.6
-			"midfield":
-				progress = lerpf(progress, maxf(0.20, ball_progress - 0.06), 0.35)
-				target_y = 0.5 + lane_offset * width_scale * compactness + ball_shift_y
-			"defense":
-				# Defenders form a flat line - same progress, compact
-				progress = lerpf(progress, maxf(0.12, ball_progress - 0.14), 0.40)
-				target_y = 0.5 + lane_offset * width_scale * compactness * 0.9 + ball_shift_y * 0.8
-
-	match goblin.position:
-		"winger":
-			# Wingers MUST hold width - they stretch the play
-			var winger_side: float = signf(lane_offset)
-			if winger_side == 0.0:
-				winger_side = 1.0
-			target_y = 0.5 + winger_side * 0.38 + (carrier_y - 0.5) * 0.08
-			if in_poss:
-				progress += 0.03
-		"wing_back":
-			var wb_side: float = signf(lane_offset)
-			if wb_side == 0.0:
-				wb_side = 1.0
-			target_y = 0.5 + wb_side * 0.32 + (carrier_y - 0.5) * 0.10
-			progress += 0.01 if in_poss else -0.01
-		"playmaker", "trequartista", "attacking_mid":
-			target_y = lerpf(target_y, carrier_y, 0.18)
-			if in_poss:
-				progress += 0.02
-		"anchor":
-			target_y = lerpf(target_y, 0.5, 0.30)
-			progress -= 0.03
-		"sweeper":
-			target_y = lerpf(target_y, 0.5, 0.18)
-			progress -= 0.04
-		"box_to_box":
-			progress += 0.03 if in_poss else -0.01
-			target_y = lerpf(target_y, carrier_y, 0.10)
-		"poacher", "shadow_striker", "target_man":
-			progress += 0.04 if in_poss else 0.01
-		"false_nine":
-			progress -= 0.02 if in_poss else 0.00
-			target_y = lerpf(target_y, carrier_y, 0.14)
-
-	# Weak-side width: players on the opposite side of the ball hold wider
-	var ball_side: float = signf(carrier_y - 0.5)
-	var player_side: float = signf(home_y - 0.5)
-	if ball_side != 0.0 and player_side != ball_side and zone != "goal":
-		target_y += player_side * 0.04
-
-	progress = clampf(progress, 0.08, 0.92)
-	target_y = clampf(target_y, 0.08, 0.92)
-	return Vector2(_from_progress(progress, is_home), target_y)
 
 # ── Movement (Arrival Behavior) ───────────────────────────────────────────
 
@@ -1911,6 +1454,20 @@ func _move_all_goblins() -> void:
 		gs["vel_x"] = vel_x
 		gs["vel_y"] = vel_y
 
+		# HARD ZONE CLAMP: goblins physically cannot exist outside their zone rect
+		# Exempt: ball carrier, pass receiver, loose ball chaser (they need to reach the ball)
+		if goblin.position != "keeper" and ball.owner != goblin:
+			var is_receiver: bool = ball.state == Ball.BallState.TRAVELLING and _ball_intent.get("target_goblin", null) == goblin
+			var is_chaser: bool = coordinator.get_role(goblin) == TeamCoordinator.Role.LOOSE_CHASER
+			if not is_receiver and not is_chaser:
+				var zr_in_poss: bool = false
+				if ball.owner and goblin_states.has(ball.owner):
+					zr_in_poss = _gb(goblin_states[ball.owner], "is_home") == _gb(gs, "is_home")
+				var zr_rect: Array = PositionDatabase.get_zone_rect_flipped(
+					goblin.position, zr_in_poss, _gb(gs, "is_home"), _gb(gs, "is_left_flank"))
+				gs["x"] = clampf(_gf(gs, "x"), float(zr_rect[0]), float(zr_rect[1]))
+				gs["y"] = clampf(_gf(gs, "y"), float(zr_rect[2]), float(zr_rect[3]))
+
 		# Update facing: moving = face movement direction, still = face the ball
 		if absf(vel_x) > 0.001:
 			gs["facing"] = 1.0 if vel_x > 0 else -1.0
@@ -1968,6 +1525,15 @@ func _move_all_goblins() -> void:
 				gsb["vel_x"] = _gf(gsb, "vel_x") - sep_dx * vel_push * b_share
 				gsb["vel_y"] = _gf(gsb, "vel_y") - sep_dy * vel_push * b_share
 
+				# Collision aggression: high-chaos goblins hurt opponents on contact
+				if not same_team:
+					var chaos_a: float = float(ga.get_stat("chaos"))
+					var chaos_b: float = float(gb_gob.get_stat("chaos"))
+					if chaos_a >= 6.0 and randf() < chaos_a * 0.006:
+						_roll_tackle_injury(ga, gb_gob, false)
+					if chaos_b >= 6.0 and randf() < chaos_b * 0.006:
+						_roll_tackle_injury(gb_gob, ga, false)
+
 	# Hard clamp keeper positions - stay between the posts, on the line
 	for goblin3 in goblin_states:
 		if goblin3.position == "keeper":
@@ -1979,10 +1545,8 @@ func _move_all_goblins() -> void:
 # ── Kickoff Reset ───────────────────────────────────────────────────────────
 
 func _reset_positions_for_kickoff(kicking_team_idx: int) -> void:
-	_active_runs.clear()
 	_action_targets.clear()
 	_carrier_target.clear()
-	_move_targets.clear()
 	_clear_ball_intent()
 	_apply_kickoff_reset(home_formation, true)
 	_apply_kickoff_reset(away_formation, false)
@@ -1999,10 +1563,7 @@ func _reset_positions_for_kickoff(kicking_team_idx: int) -> void:
 		kgs["y"] = 0.5
 		kgs["ideal_x"] = 0.5
 		kgs["ideal_y"] = 0.5
-		kgs["roam_x"] = 0.5
-		kgs["roam_y"] = 0.5
-		kgs["support_x"] = 0.5
-		kgs["support_y"] = 0.5
+		kgs["run_ticks"] = 0
 
 		# Find outlet: prefer 2nd midfielder, fallback to nearest attacker
 		var outlet: GoblinData = null
@@ -2021,10 +1582,7 @@ func _reset_positions_for_kickoff(kicking_team_idx: int) -> void:
 			ogs["y"] = outlet_y
 			ogs["ideal_x"] = outlet_x
 			ogs["ideal_y"] = outlet_y
-			ogs["roam_x"] = outlet_x
-			ogs["roam_y"] = outlet_y
-			ogs["support_x"] = outlet_x
-			ogs["support_y"] = outlet_y
+			ogs["run_ticks"] = 0
 
 		# Set kickoff hold state
 		_kickoff_hold_ticks = KICKOFF_HOLD_DURATION
@@ -2058,6 +1616,7 @@ func _execute_kickoff_pass() -> void:
 	_kickoff_kicker = null
 	_kickoff_outlet = null
 
+
 # ── AI Context Builder ─────────────────────────────────────────────────────
 
 func _build_ai_context(goblin: GoblinData) -> GoblinAI.Context:
@@ -2079,6 +1638,11 @@ func _build_ai_context(goblin: GoblinData) -> GoblinAI.Context:
 		ctx.team_has_ball = _gb(owner_gs, "is_home") == _gb(gs, "is_home")
 	else:
 		ctx.team_has_ball = false
+
+	# Zone rect for leash checks (presser zone restriction)
+	var is_left: bool = _gb(gs, "is_left_flank")
+	ctx.zone_rect = PositionDatabase.get_zone_rect_flipped(
+		goblin.position, ctx.team_has_ball, _gb(gs, "is_home"), is_left)
 
 	ctx.teammates = []
 	ctx.opponents = []

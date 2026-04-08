@@ -243,4 +243,4 @@ func _format_bracket_fixture(f: FixtureData) -> String:
 	return home_name + "  vs  " + away_name
 
 func _on_next_match() -> void:
-	get_tree().change_scene_to_file("res://scenes/match/match.tscn")
+	get_tree().change_scene_to_file("res://scenes/match_sim/match_sim_viewer.tscn")

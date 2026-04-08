@@ -241,30 +241,34 @@ static func _ensure_zones() -> void:
 
 	# format: "key": { "in": [x_min, x_max, y_min, y_max], "out": [...] }
 	_zone_rects = {
+		# Zone rects: [x_min, x_max, y_min, y_max] for HOME team (attacking right)
+		# "in" = team has possession (pushed up, wider)
+		# "out" = defending (dropped back, tighter)
+		# Keep rects tight - goblins should look like they're holding position
 		# -- Base --
-		"keeper":     { "in": [0.02, 0.12, 0.30, 0.70], "out": [0.02, 0.08, 0.25, 0.75] },
-		"striker":    { "in": [0.50, 0.92, 0.15, 0.85], "out": [0.40, 0.65, 0.20, 0.80] },
-		"midfielder": { "in": [0.25, 0.60, 0.15, 0.85], "out": [0.18, 0.45, 0.15, 0.85] },
-		# Winger: flanked - y range depends on which side
-		"winger_left":  { "in": [0.35, 0.85, 0.05, 0.35], "out": [0.25, 0.55, 0.05, 0.35] },
-		"winger_right": { "in": [0.35, 0.85, 0.65, 0.95], "out": [0.25, 0.55, 0.65, 0.95] },
+		"keeper":     { "in": [0.02, 0.10, 0.35, 0.65], "out": [0.02, 0.08, 0.35, 0.65] },
+		"striker":    { "in": [0.55, 0.88, 0.20, 0.80], "out": [0.40, 0.62, 0.22, 0.78] },
+		"midfielder": { "in": [0.28, 0.55, 0.18, 0.82], "out": [0.20, 0.42, 0.20, 0.80] },
+		# Winger: flanked - hold the touchline, don't wander central
+		"winger_left":  { "in": [0.38, 0.82, 0.08, 0.32], "out": [0.28, 0.52, 0.08, 0.32] },
+		"winger_right": { "in": [0.38, 0.82, 0.68, 0.92], "out": [0.28, 0.52, 0.68, 0.92] },
 		# -- Hybrid --
-		"false_nine":   { "in": [0.35, 0.85, 0.15, 0.85], "out": [0.35, 0.60, 0.20, 0.80] },
-		"attacking_mid": { "in": [0.30, 0.80, 0.15, 0.85], "out": [0.20, 0.55, 0.15, 0.85] },
-		"sweeper":      { "in": [0.10, 0.35, 0.15, 0.85], "out": [0.06, 0.25, 0.15, 0.85] },
-		"target_man":   { "in": [0.55, 0.92, 0.25, 0.75], "out": [0.42, 0.65, 0.25, 0.75] },
-		"box_to_box":   { "in": [0.15, 0.75, 0.10, 0.90], "out": [0.10, 0.55, 0.10, 0.90] },
-		"playmaker":    { "in": [0.25, 0.80, 0.10, 0.90], "out": [0.20, 0.50, 0.15, 0.85] },
-		"enforcer":     { "in": [0.12, 0.40, 0.15, 0.85], "out": [0.08, 0.30, 0.15, 0.85] },
-		"shadow_striker": { "in": [0.45, 0.90, 0.10, 0.90], "out": [0.38, 0.60, 0.15, 0.85] },
-		"anchor":       { "in": [0.10, 0.35, 0.25, 0.75], "out": [0.06, 0.28, 0.20, 0.80] },
-		"poacher":      { "in": [0.60, 0.95, 0.20, 0.80], "out": [0.45, 0.65, 0.25, 0.75] },
-		"trequartista": { "in": [0.30, 0.85, 0.10, 0.90], "out": [0.25, 0.50, 0.15, 0.85] },
-		# Wing-back: flanked
-		"wing_back_left":  { "in": [0.10, 0.70, 0.05, 0.35], "out": [0.06, 0.30, 0.05, 0.35] },
-		"wing_back_right": { "in": [0.10, 0.70, 0.65, 0.95], "out": [0.06, 0.30, 0.65, 0.95] },
-		# Generic defender (for positions not in this list)
-		"_default":     { "in": [0.15, 0.45, 0.10, 0.90], "out": [0.08, 0.30, 0.10, 0.90] },
+		"false_nine":   { "in": [0.38, 0.78, 0.22, 0.78], "out": [0.35, 0.58, 0.25, 0.75] },
+		"attacking_mid": { "in": [0.32, 0.72, 0.18, 0.82], "out": [0.22, 0.50, 0.20, 0.80] },
+		"sweeper":      { "in": [0.10, 0.32, 0.20, 0.80], "out": [0.06, 0.24, 0.22, 0.78] },
+		"target_man":   { "in": [0.55, 0.88, 0.28, 0.72], "out": [0.42, 0.62, 0.28, 0.72] },
+		"box_to_box":   { "in": [0.22, 0.62, 0.15, 0.85], "out": [0.15, 0.48, 0.18, 0.82] },
+		"playmaker":    { "in": [0.28, 0.68, 0.15, 0.85], "out": [0.22, 0.48, 0.18, 0.82] },
+		"enforcer":     { "in": [0.12, 0.38, 0.18, 0.82], "out": [0.08, 0.28, 0.20, 0.80] },
+		"shadow_striker": { "in": [0.48, 0.85, 0.18, 0.82], "out": [0.38, 0.58, 0.22, 0.78] },
+		"anchor":       { "in": [0.10, 0.32, 0.28, 0.72], "out": [0.06, 0.26, 0.25, 0.75] },
+		"poacher":      { "in": [0.60, 0.90, 0.22, 0.78], "out": [0.45, 0.62, 0.25, 0.75] },
+		"trequartista": { "in": [0.32, 0.75, 0.15, 0.85], "out": [0.25, 0.48, 0.20, 0.80] },
+		# Wing-back: flanked - wider range than winger (they defend too)
+		"wing_back_left":  { "in": [0.12, 0.62, 0.08, 0.32], "out": [0.08, 0.28, 0.08, 0.32] },
+		"wing_back_right": { "in": [0.12, 0.62, 0.68, 0.92], "out": [0.08, 0.28, 0.68, 0.92] },
+		# Generic defender
+		"_default":     { "in": [0.15, 0.40, 0.15, 0.85], "out": [0.08, 0.28, 0.18, 0.82] },
 	}
 
 static func get_zone_rect(position_key: String, in_possession: bool, is_left_flank: bool = false) -> Array:

@@ -1,335 +1,268 @@
-# Goals & Goblins - Engine Rewrite Plan
+# Goals & Goblins - Game Plan
 
 ## Vision
-Roguelike soccer game. You're a dark sorcerer commanding 6 goblins vs 6 opponent goblins in real-time matches. 14 goblins per run - if they die, they're gone. Between matches: shop, level up survivors, manage injuries, curate spell/item deck. Top-down 2D vector art with procedural goblin appearances.
+Roguelike soccer manager. You're a dark sorcerer commanding goblins through a World Cup tournament. Two interlocking systems: **roster management** (keep your goblins alive across a brutal tournament) and **spell deck** (play cards during matches for dramatic interventions). Matches are autonomous - your decisions happen before and between them.
 
 ---
 
-## STAT SYSTEM (Hexagon Display)
+## SYSTEM 1: ROSTER MANAGEMENT (the core game)
+
+### The Run
+- Start with **14 goblins** (need 6 per match, so 8 reserves)
+- Tournament is a **World Cup structure**: group stage (3 matches), knockouts (quarters, semis, final)
+- **7 matches to win it all**, but your roster degrades every game
+- Run ends when you **can't field 6** or you **win the cup**
+
+### The Tension: Attrition
+Goblins get hurt and die. Every match costs you something:
+- **Minor injury**: -1 to a random stat. Can play through it but they're weaker
+- **Major injury**: -2 to multiple stats. Basically useless until healed
+- **Dead**: Gone forever. 14 becomes 13 becomes 12...
+- **Fatigue**: Goblins who play consecutive matches get tired (-1 speed, -1 defense next match)
+
+### Between Matches: Management Phase
+This is where the strategy lives:
+
+**Rotation**: Pick your 6 from the healthy roster. Rest tired goblins. Shield your stars.
+
+**Healing**: Spend gold to heal injuries (minor = cheap, major = expensive). Can't heal dead.
+
+**Recruitment**: Spend gold to recruit a replacement goblin from a random pool. They're worse than your starters but they're alive.
+
+**Leveling**: Goblins who play well (goals, assists, tackles) earn XP. Level up = +1 to a stat. Survivors get stronger, creating attachment.
+
+**Items**: Equip one item per goblin (stat boosts, injury resistance, special effects). Buy from shop between matches.
+
+### Gold Economy
+- Win = 100g, Draw = 50g, Loss = 25g
+- Bonus gold for goals, clean sheets, goblin kills
+- Healing: minor 30g, major 80g
+- Recruitment: 60-120g (random quality)
+- Items: 30-70g
+- You can't afford everything. Choosing what to spend on IS the game.
+
+### What Makes It a Roguelike
+- **Permadeath**: Dead goblins are dead. Named, statted, leveled goblins you invested in - gone.
+- **Escalating pressure**: Roster shrinks, opponents get harder, gold gets tighter
+- **Build identity**: Your team composition evolves based on who survives, not who you planned
+- **Run variance**: Different starting rosters, different shop offerings, different opponents
+
+---
+
+## SYSTEM 2: SPELL DECK (match-day agency)
+
+### The Deck
+- Build a deck of **8-10 spell cards** across the run
+- Each match you draw a **hand of 5 cards**
+- Cards cost **mana** (start with 5 mana per match, no regen)
+- High-impact cards cost 3-4 mana (so you play 1-2 of those per match)
+- Low-impact cards cost 1 mana (play 3-5 of those)
+- **Cards are not consumed** - your deck persists across the run
+
+### Spell Cards
+
+| Card | Mana | Effect |
+|------|------|--------|
+| **Fireball** | 3 | AoE blast - kills/injures goblins in radius (both teams!) |
+| **Haste** | 1 | +3 speed to one goblin for 15 seconds |
+| **Dark Surge** | 1 | +3 shooting to one goblin for 15 seconds |
+| **Shadow Wall** | 2 | +3 defense to all your defenders for 10 seconds |
+| **Hex** | 2 | -2 all stats on one opponent for 30 seconds |
+| **Blood Pact** | 3 | Double shooting for one goblin, but they take injury post-match |
+| **Necromancy** | 4 | Revive a dead goblin at half stats, this match only |
+| **Frenzy** | 3 | All goblins +2 speed +2 shooting -3 defense for rest of match |
+| **Multiball** | 2 | 3 chaos balls on the pitch for 10 seconds |
+| **Curse of the Post** | 1 | Opponent's next shot auto-misses |
+
+### Deck Building (between matches)
+- Shop offers 2-3 new spell cards after each match
+- Buy cards to add to your deck (20-60g)
+- Can't remove cards (deck grows, hand is random 5)
+- Strategy: lean deck (few powerful cards, always draw them) vs wide deck (versatility but inconsistent)
+
+### When You Cast
+- Anytime during the match EXCEPT during committed actions (shots mid-flight, tackles mid-lunge)
+- Click card, click target (goblin or pitch location)
+- Mana spent immediately, no refund
+
+---
+
+## STAT SYSTEM
 
 Six stats, 1-10 scale:
 
 | Stat | What it does |
 |------|-------------|
 | **Shooting** | Goal conversion, accuracy, finishing |
-| **Speed** | Movement, closing down, runs, transitions |
+| **Speed** | Movement speed, closing down, transitions |
 | **Defense** | Tackling, interception, positioning |
-| **Strength** | Physical duels, holding ball, aerials, shot blocking |
-| **Health** | Stamina/durability through a run, injury resistance |
-| **Chaos** | Random factor - brilliant or terrible, wider outcome range |
-
-Keeper is a position, not a stat. High Strength + High Defense = good keeper.
+| **Strength** | Physical duels, holding ball, injury dealing |
+| **Health** | Injury resistance, fatigue resistance, durability |
+| **Chaos** | Random factor - brilliant or terrible. Collision aggression. |
 
 ---
 
 ## POSITIONS
 
-### Base (2 strong stats)
+### Base (2 primary stats)
+| Position | Stats | Zone |
+|----------|-------|------|
+| Striker | Shooting + Speed | Attack |
+| Winger | Speed + Chaos | Attack |
+| Midfielder | Defense + Speed | Midfield |
+| Keeper | Strength + Defense | Goal |
 
-| Position | Primary | Secondary |
-|----------|---------|-----------|
-| **Striker** | Shooting | Speed |
-| **Winger** | Speed | Chaos |
-| **Midfielder** | Defense | Speed |
-| **Keeper** | Strength | Defense |
-
-### Hybrids (3 strong stats, unlocked through progression)
-
-| # | Position | Stats | Identity |
-|---|----------|-------|----------|
-| 1 | **False Nine** | Shooting + Chaos + Strength | Drops deep, holds ball, unpredictable |
-| 2 | **Attacking Mid** | Shooting + Speed + Defense | Complete player, scores and tracks back |
-| 3 | **Sweeper** | Defense + Strength + Speed | Last line, intercepts everything |
-| 4 | **Target Man** | Shooting + Strength + Health | Tank, holds ball up, wins headers |
-| 5 | **Box-to-Box** | Defense + Speed + Health | Tireless, covers the whole pitch |
-| 6 | **Playmaker** | Chaos + Speed + Shooting | Creative genius, occasional disaster |
-| 7 | **Enforcer** | Defense + Strength + Chaos | Dirty tackles, intimidation, red card risk |
-| 8 | **Shadow Striker** | Shooting + Chaos + Health | Lurks, appears from nowhere, survives deep into runs |
-| 9 | **Wing-Back** | Speed + Defense + Health | Attacks and defends the flank endlessly |
-| 10 | **Anchor** | Defense + Strength + Health | Immovable wall, never injured |
-| 11 | **Poacher** | Shooting + Strength + Chaos | Ugly goals, rebounds, bulldozes keepers |
-| 12 | **Trequartista** | Shooting + Speed + Chaos | Pure flair, zero defensive effort |
-
-Each hybrid has a unique 3-stat combo. Each has a distinct position tendency that drives their AI behavior.
+### Hybrid (3 primary stats, found through recruitment/progression)
+| Position | Stats | Identity |
+|----------|-------|----------|
+| False Nine | Shooting + Chaos + Strength | Drops deep, unpredictable |
+| Attacking Mid | Shooting + Speed + Defense | Complete player |
+| Sweeper | Defense + Strength + Speed | Last line interceptor |
+| Target Man | Shooting + Strength + Health | Tank, holds ball up |
+| Box-to-Box | Defense + Speed + Health | Tireless coverage |
+| Playmaker | Chaos + Speed + Shooting | Creative genius/disaster |
+| Enforcer | Defense + Strength + Chaos | Dirty tackles, kills opponents |
+| Shadow Striker | Shooting + Chaos + Health | Lurks, appears from nowhere |
+| Wing-Back | Speed + Defense + Health | Attacks and defends flank |
+| Anchor | Defense + Strength + Health | Immovable wall |
+| Poacher | Shooting + Strength + Chaos | Ugly goals, bulldozes keepers |
+| Trequartista | Shooting + Speed + Chaos | Pure flair, zero defense |
 
 ---
 
-## BALL MODEL
+## MATCH ENGINE (built, working)
 
-The ball is a real object with its own state. Not always owned by a goblin.
+- Headless simulation at 10 ticks/sec
+- Zone-leash positioning (goblins clamped to position rectangles)
+- Dribble-first AI (carry ball forward, pass when pressured)
+- Violence system (tackles injure/kill, collision aggression)
+- Visual layer reads state snapshots, lerps tokens smoothly
+- 3 prototype spell cards working (Fireball, Haste, Multiball)
 
-| State | What's happening | Duration |
-|-------|-----------------|----------|
-| **Controlled** | Goblin has it at feet | Until they act |
-| **Loose** | Rolling free, nobody owns it | 0.5-2s, goblins race to it |
-| **Contested** | Two+ goblins fighting for it | 0.3-1s, stat contest resolves |
-| **Travelling** | Pass/shot/cross in flight | 0.2-0.8s, can be intercepted |
-| **Dead** | Out of play - goal kick, corner, foul | 1-2s pause, set piece restart |
-
-Loose ball creates organic drama. After tackles, deflections, bad touches, headers - ball is just *there*. Nearest goblins from both teams race to it. Speed determines who arrives first, Strength determines who wins the contest, Chaos determines if something weird happens.
-
----
-
-## SCORING CHAIN
-
-Goals are the end of a chain, not a single roll:
-
-```
-1. Win possession (tackle, interception, keeper save)
-	   ↓
-2. Build up (passes through midfield - each can be intercepted)
-	   ↓
-3. Create chance (through ball, cross, dribble into box)
-	   ↓
-4. Shooting opportunity (attacker vs keeper area)
-	   ↓
-5. Shot resolution
-	   ↓
-   GOAL  /  SAVE  /  MISS  /  BLOCK
-		   ↓         ↓         ↓
-		Rebound   Goal kick  Corner/loose ball
-```
-
-### Shot Resolution
-
-```
-Shot power:    Shooting + Strength (+ Chaos variance)
-Shot accuracy: Shooting + Speed (+ Chaos variance)
-Keeper save:   Keeper's Strength + Defense
-Block chance:  Defender in zone: Defense + Strength
-
-  power > save AND accurate  →  GOAL
-  power > save AND inaccurate →  MISS (wide/over)
-  power < save               →  SAVE → rebound?
-  defender in the way         →  BLOCK → corner/loose
-```
-
-### Point of No Return (Spells Lock)
-
-```
-WINDUP   → shooter decides to shoot (0.3s) - CAN cast spells
-SHOT     → ball leaves the foot, locked (0.3-0.6s) - SPELLS LOCKED
-RESULT   → engine decided: goal/save/miss/block
-AFTERMATH → ball loose/dead, spells unlock
-```
-
-Same pattern for tackles (committed), headers (ball contacted), keeper dives (committed).
+Key files:
+- `scripts/match_simulation.gd` - Core engine
+- `scripts/goblin_ai.gd` - Per-goblin decisions
+- `scripts/ball.gd` - Ball state machine
+- `scripts/team_coordinator.gd` - Role assignment
+- `scripts/position_database.gd` - Zone rects per position
+- `scenes/ui/animated_pitch.gd` - Pitch rendering
+- `scenes/match_sim/match_sim_viewer.gd` - Match viewer
 
 ---
 
-## THREE INTERVENTION LAYERS
+## WHAT EXISTS (already built)
 
-### Spells (cast any time, mana cost, cooldowns)
+### Working Systems
+- **Match engine**: Headless sim, zone leashes, dribble AI, violence, visual viewer (`match_sim_viewer.gd`)
+- **Tournament structure**: 32-team World Cup, groups + knockouts, standings, bracket (`scripts/tournament/`)
+- **Run manager**: Gold tracking, match history, tournament state (`scripts/autoload/run_manager.gd`)
+- **Game manager**: Match phase state, momentum, score (`scripts/autoload/game_manager.gd`)
+- **Goblin data**: 6 stats, injury system (minor/major/dead), stat penalties (`resources/goblin_data.gd`)
+- **Goblin database**: 10-player pool, 5-faction opponent generator (`scripts/goblin_database.gd`)
+- **Tournament hub**: Group standings, bracket display, next opponent (`scenes/screens/tournament_hub.gd`)
+- **Shop screen**: Card buy/remove UI (`scenes/screens/shop.gd`)
+- **Reward screen**: 3-choice card picks post-match (`scenes/reward/reward.gd`)
+- **Death/victory screens**: Narrative endings with stats (`scenes/screens/death_scene.gd`, `victory_scene.gd`)
+- **3 prototype spells**: Fireball, Haste, Multiball (hardcoded in match_simulation.gd)
 
-No response windows. You're a sorcerer - you cast when you want. Spells locked only during committed actions (~0.5-1s).
-
-| Spell | Effect | Mana | Rarity |
-|-------|--------|------|--------|
-| **Dark Surge** | +3 shooting to target goblin, 15s | 1 | Common |
-| **Shadow Wall** | +3 defense to all defenders, 10s | 2 | Common |
-| **Haste** | +3 speed to target goblin, 15s | 1 | Common |
-| **Hex** | -2 all stats on one opponent, 30s | 2 | Uncommon |
-| **Soul Swap** | Swap positions of two goblins instantly | 1 | Uncommon |
-| **Blood Pact** | Double shooting, goblin takes injury post-match | 3 | Rare |
-| **Necromancy** | Revive dead goblin at half stats, this match only | 4 | Rare |
-| **Curse of the Post** | Opponent's next shot auto-misses | 2 | Uncommon |
-| **Frenzy** | All goblins +1 speed +1 shooting -2 defense, 60s | 3 | Rare |
-| **Dark Vision** | See opponent tendencies for 60s | 2 | Uncommon |
-
-### Items (equipped between matches, 1 slot per goblin)
-
-| Item | Effect | Shop cost |
-|------|--------|-----------|
-| **Spiked Boots** | +1 speed permanently | 50g |
-| **Cursed Gloves** | +1 shooting, -1 defense | 30g |
-| **Iron Shinguards** | +1 defense permanently | 50g |
-| **Healing Salve** | Remove one injury | 40g |
-| **Lucky Charm** | Morale can't drop below 5 | 60g |
-| **Berserker Talisman** | +2 shooting when health below 50% | 45g |
-| **Shadow Cloak** | Harder for opponents to mark this goblin | 70g |
-| **Goblin Grog** | Full stamina restore between matches | 25g |
-
-### Commands (tactical toggles, 1 active at a time, cooldown between switches)
-
-| Command | Effect |
-|---------|--------|
-| **Press High** | All goblins push forward, more events but exposed at back |
-| **Park the Bus** | Everyone drops deep, fewer chances but hard to score against |
-| **Counter Attack** | Sit deep without ball, sprint forward with ball |
-| **Target Left/Right** | Events weighted to a flank, wing positions activate |
-| **Mark Him** | One goblin shadows a specific opponent, reduces their effectiveness |
-| **All Out Attack** | Final 5 minutes desperation, massive attack bonus, no defense |
-
----
-
-## MATCH ENGINE ARCHITECTURE
-
-Simulation and visuals are completely separated.
-
+### Current Flow
 ```
-┌─────────────────┐     ┌──────────────────┐
-│  MATCH ENGINE    │────→│  VISUAL LAYER    │
-│  (pure numbers)  │     │  (what you see)  │
-│                  │     │                  │
-│  Ticks 4x/sec    │     │  Renders 60fps   │
-│  Positions as %  │     │  Lerps between   │
-│  States + events │     │  engine states   │
-│  No nodes/scenes │     │  All the art     │
-└─────────────────┘     └──────────────────┘
+Tournament Hub → match.tscn (OLD engine) → shop.tscn → Tournament Hub
 ```
 
-### State Snapshot (output every tick)
-
-```
-{
-  ball: { x, y, state, owner, velocity },
-  goblins: [
-	{ name, x, y, state, facing, active_effects },
-	...
-  ],
-  spells_locked: bool,
-  mana: float,
-  score: [int, int],
-  clock: float,
-}
-```
-
-### Tick Loop (4x/second)
-
-```
-1. Update ball physics (move loose/travelling ball)
-2. For each goblin (sorted by readiness):
-   a. Fill readiness meter (+= speed * tick_delta)
-   b. If readiness >= threshold:
-	  - Decide action (GoblinAI based on position type + command)
-	  - Execute action (stat contest if opponent involved)
-	  - Set cooldown, reset readiness
-3. Resolve loose ball contests (multiple goblins near loose ball)
-4. Resolve committed actions (shot reaching goal, pass arriving)
-5. Check goals, out of play, fouls
-6. Tick active spell effects (decrement durations)
-7. Emit state snapshot
-```
-
-### Position Tendencies (what each position DOES)
-
-| Position | With ball | Without ball (own team has it) | Without ball (opponent has it) |
-|----------|-----------|-------------------------------|-------------------------------|
-| Striker | Shoot or dribble toward goal | Hold high line, find space | Press opponent defense lazily |
-| Winger | Cross or cut inside | Hug touchline, offer width | Track back to own half |
-| Midfielder | Pass forward, distribute | Sit central, offer passing option | Press, win ball back |
-| Keeper | Distribute quickly | Stay in goal | Stay in goal |
-| Target Man | Hold up ball, lay off | Post up near goal | Minimal pressing |
-| Playmaker | Through ball, creative pass | Roam to find space | Avoid defending |
-| Enforcer | Simple pass, clear danger | Track opponent's best player | Hard tackle, foul risk |
-| Shadow Striker | Quick shot, first time finish | Drift into blind spots | Appear after rebounds |
-| Poacher | Tap in, rebound | Lurk on last defender's shoulder | Don't press |
-| Wing-Back | Overlap, cross | Overlap on flank | Sprint back to defend |
-| Box-to-Box | Simple forward pass | Fill gaps | Cover everywhere |
-| Anchor | Clear it | Block central space | Block central space |
-| Sweeper | Clear to safety | Cover behind defense | Intercept through balls |
-| False Nine | Drop deep, hold up, create | Pull defenders out of position | Press from front |
-| Trequartista | Dribble, shoot, flair | Float between lines | Don't defend |
-| Attacking Mid | Shoot from distance, pass | Push into attacking third | Track back reluctantly |
-
-### Chaos Mechanic
-
-High Chaos goblins:
-- Generate unexpected events outside their position tendency
-- Have wider outcome ranges (better successes, worse failures)
-- Can chain events (Chaos moment triggers bonus action before next tick)
-- Create foul/card risk (Chaos + Strength = dramatic fouls)
-- Genuinely risky to field. Low Chaos goblins are reliable but boring.
-
----
-
-## GOBLIN TOKEN ANIMATION STATES
-
-| State | Circle placeholder (now) | Future art |
-|-------|-------------------------|------------|
-| **Idle** | Gentle bob | Breathing animation |
-| **Running** | Token moves toward target | Run cycle |
-| **With ball** | Ball stuck to token | Dribble animation |
-| **Shooting** | Quick forward lurch | Wind up + kick |
-| **Tackling** | Quick sideways lunge | Slide tackle |
-| **Celebrating** | Scale bounce | Arms up, jumping |
-| **Fouled** | Flash red | Falling down |
-| **Hexed** | Purple tint | Purple aura VFX |
-| **Boosted** | Gold tint + glow | Gold aura VFX |
-
-### Procedural Goblin Appearance (future)
-
-Each goblin assembled from parts at generation:
-- Head shape (5+ variants)
-- Skin color (greens, grays, purples)
-- Eyes (6+ variants)
-- Ears (4+ variants)
-- Mouth/teeth (5+ variants)
-- Kit/jersey (team colored, numbered)
-- Accessories (unlockable: helmets, warpaint, scars, piercings)
-
-Stored in GoblinData as appearance dict. AnimatedSprite2D composites layers at runtime.
-
----
-
-## FILE ARCHITECTURE
-
-### Keep as-is
-- `scenes/ui/animated_pitch.gd` - FIFA pitch drawing (wire to new engine snapshots)
-- `scenes/ui/goblin_token.gd` - Token scene (add animation states)
-- `scenes/ui/toast_manager.gd` - Notifications
-- `scenes/ui/score_display.gd` - Score
-- `scripts/autoload/ui_theme.gd` - Styling
-- `scenes/screens/main_menu.gd` - Entry point
-- Scene shells: tournament hub, shop, etc.
-
-### Rewrite
-| File | Becomes |
-|------|---------|
-| `resources/goblin_data.gd` | 6 stats, position type, appearance, items, injury state |
-| `resources/card_data.gd` | `resources/spell_data.gd` - mana, duration, target type, cooldown |
-| `scripts/realtime_engine.gd` | Replaced by `match_simulation.gd` |
-| `scripts/match_choreographer.gd` | Rewritten to read state snapshots |
-| `scenes/match_realtime/match_realtime.gd` | New controller: simulation + visuals + casting |
-| `scripts/formation.gd` | Position-based, 6v6 with position types |
-| `scripts/deck.gd` | Spell hand manager - mana, cooldowns |
-| `scripts/buff_card_database.gd` | `scripts/spell_database.gd` |
-| `scripts/autoload/game_manager.gd` | Mana instead of energy, drop round/phase |
-
-### Build new
-| File | Purpose |
-|------|---------|
-| `scripts/match_simulation.gd` | Core engine. Ticks match, goblin AI, ball, stat contests |
-| `scripts/goblin_ai.gd` | Per-position decision making each tick |
-| `scripts/ball.gd` | Ball state machine and physics |
-| `scripts/spell_system.gd` | Mana pool, cast, cooldowns, active effects |
-| `scripts/command_system.gd` | Tactical commands: press/park/target/mark |
-| `scripts/position_database.gd` | 4 base + 12 hybrid definitions, tendencies |
-| `scripts/goblin_generator.gd` | Procedural goblin creation |
-| `scripts/injury_system.gd` | Health degradation, injury rolls, death |
-| `scripts/shop/spell_shop.gd` | Buy/sell/upgrade spells |
-| `scripts/shop/item_shop.gd` | Equip items, manage inventory |
-| `scripts/run_state.gd` | 14-goblin roster, gold, spell deck, progression |
-| `scenes/ui/hex_display.gd` | Hexagonal stat radar |
-| `scenes/ui/spell_bar.gd` | Always-visible spell hand + mana bar |
-| `scenes/ui/command_bar.gd` | Tactical command toggles |
-| `scenes/screens/roster_screen.gd` | View/manage 14 goblins, equip items |
+### Gold Economy (current values - too low)
+Win=5g, Draw=2g, Loss=1g, +1g/goal (cap 3)
 
 ---
 
 ## BUILD ORDER
 
-| Phase | What | Milestone |
-|-------|------|-----------|
-| **1** | `goblin_data.gd` rewrite + `position_database.gd` | Data model exists |
-| **2** | `match_simulation.gd` + `ball.gd` + `goblin_ai.gd` | Headless sim runs, outputs snapshots |
-| **3** | Wire `animated_pitch.gd` to read snapshots | Watch a match play itself |
-| **4** | `spell_system.gd` + `spell_data.gd` + `spell_bar.gd` | Cast spells during matches |
-| **5** | `command_system.gd` + `command_bar.gd` | Tactical orders |
-| **6** | `hex_display.gd` + roster screen | Goblin management UI |
-| **7** | `run_state.gd` + shop + injury system | Meta progression loop |
-| **8** | `goblin_generator.gd` + procedural appearance | Content generation |
+### Phase 1: Wire New Match Engine into Run Loop
+**What**: Replace `match.tscn` with `match_sim_viewer.tscn` in the tournament flow. Pass the player's formation and opponent's formation from RunManager into the sim viewer. Record results back.
 
-**Phase 1-3**: Watchable match with goblins doing stuff.
-**Phase 4-5**: Playable match with sorcerer intervention.
-**Phase 6-8**: Full roguelike loop.
+**Changes**:
+- `tournament_hub.gd`: Launch `match_sim_viewer.tscn` instead of `match.tscn`
+- `match_sim_viewer.gd`: Accept formations from RunManager instead of hardcoded rosters. Call `RunManager.record_match_result()` on match end. Transition to shop/reward.
+- Update gold economy to new values (Win=100g, Draw=50g, Loss=25g)
+
+**Milestone**: Play a tournament using the new match engine, see results persist.
+
+### Phase 2: Roster Management (Fatigue + Rotation)
+**What**: Add fatigue system and a team selection screen between matches.
+
+**Changes**:
+- `goblin_data.gd`: Add fatigue (0-10 scale). Playing a match = +3 fatigue. Resting = -fatigue. High fatigue = -1 speed, -1 defense.
+- New `scenes/screens/team_select.gd`: Pick 6 from your 14. Show health/fatigue/injury status. Drag to formation slots.
+- Flow becomes: Tournament Hub → Team Select → Match → Shop → Tournament Hub
+
+**Milestone**: Choose your squad, see fatigue build up, rotate players.
+
+### Phase 3: Injury Persistence + Death + Healing
+**What**: Injuries from matches carry over. Dead goblins removed from roster permanently. Shop offers healing.
+
+**Changes**:
+- `run_manager.gd`: Track full 14-goblin roster with persistent injury state across matches
+- `shop.gd`: Add healing tab (minor heal 30g, major heal 80g)
+- `match_sim_viewer.gd`: After match, apply injuries/deaths to RunManager roster
+- Death removes goblin from roster array permanently
+
+**Milestone**: Lose goblins across a run, feel the roster pressure, spend gold on healing.
+
+### Phase 4: Recruitment + XP/Leveling
+**What**: Buy replacement goblins when roster shrinks. Goblins earn XP from match performance.
+
+**Changes**:
+- `shop.gd`: Add recruitment tab (random goblins for 60-120g, worse than starters)
+- `goblin_data.gd`: Add XP, level, stat growth on level-up (+1 to a stat)
+- `match_sim_viewer.gd`: Award XP based on goals, assists, tackles, take-ons
+- Show XP gains on reward/post-match screen
+
+**Milestone**: Full roguelike loop - goblins die, you recruit replacements, survivors level up.
+
+### Phase 5: Items
+**What**: Equippable items (1 slot per goblin) that modify stats or give special effects.
+
+**Changes**:
+- `goblin_data.gd`: Equipment slot already exists, wire it to stat modifiers
+- `shop.gd`: Add items tab (30-70g)
+- `team_select.gd`: Show equipped items, allow equip/swap
+
+**Milestone**: Gear up your goblins, make strategic equipment choices.
+
+### Phase 6: Spell Deck System
+**What**: Replace hardcoded spell buttons with proper mana + hand + deck system.
+
+**Changes**:
+- New `scripts/spell_data.gd`: Resource with name, mana cost, effect, target type
+- New `scripts/spell_system.gd`: Deck (8-10 cards), hand draw (5 per match), mana pool (5, no regen)
+- `match_sim_viewer.gd`: Replace 3 buttons with spell hand UI, mana bar, click-to-cast
+- 10 spell cards from PLAN (Fireball, Haste, Dark Surge, Shadow Wall, Hex, Blood Pact, Necromancy, Frenzy, Multiball, Curse of the Post)
+
+**Milestone**: Cast spells from a hand during matches, mana matters.
+
+### Phase 7: Deck Building
+**What**: Buy spell cards in the shop to grow your deck.
+
+**Changes**:
+- `shop.gd`: Spell card tab (2-3 offered per match, 20-60g)
+- `run_manager.gd`: Track spell deck across run
+- Cards persist (not consumed), deck grows, hand is random 5
+
+**Milestone**: Build a spell collection across a run, strategy in lean vs wide decks.
+
+### Phase 8: Content Generation
+**What**: Procedural goblins and opponent scaling for run variety.
+
+**Changes**:
+- New `scripts/goblin_generator.gd`: Random names, stat distributions, personality
+- Opponent difficulty scales with tournament stage (group = easy, final = hard)
+- Starting roster randomized per run
+
+**Milestone**: Every run feels different.
+
+---
+
+**Phase 1-4**: Playable roguelike loop (the game works).
+**Phase 5**: Items (strategic depth).
+**Phase 6-7**: Spell deck (match-day agency).
+**Phase 8**: Content generation (replayability).

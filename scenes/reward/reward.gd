@@ -70,4 +70,4 @@ func _advance() -> void:
 	if RunManager.is_run_over():
 		get_tree().change_scene_to_file("res://scenes/run_result/run_result.tscn")
 	else:
-		get_tree().change_scene_to_file("res://scenes/match/match.tscn")
+		get_tree().change_scene_to_file("res://scenes/screens/tournament_hub.tscn")
