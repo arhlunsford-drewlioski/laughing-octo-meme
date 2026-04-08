@@ -10,10 +10,10 @@ const TICKS_PER_SECOND: float = 10.0
 const TICK_DELTA: float = 1.0 / TICKS_PER_SECOND  # 0.1s real time
 const MATCH_DURATION: float = 90.0  # match minutes
 const MINUTES_PER_TICK: float = 0.14  # slower match clock so build-up reads on screen
-const MOVEMENT_SPEED: float = 0.0095  # base jog speed (calmer)
-const SPRINT_MULTIPLIER: float = 1.20  # sprinting
-const PASS_SPEED: float = 1.30  # faster passes for better flow
-const SHOT_SPEED: float = 1.70
+const MOVEMENT_SPEED: float = 0.0080  # base jog speed
+const SPRINT_MULTIPLIER: float = 1.25  # sprinting
+const PASS_SPEED: float = 0.80  # readable pass speed
+const SHOT_SPEED: float = 1.20
 const LOOSE_BALL_RANGE: float = 0.15  # auto-claim if ball rolls near player
 const TACKLE_RANGE: float = 0.055  # tight - must be very close
 const SHOT_RANGE: float = 0.30
@@ -25,8 +25,8 @@ const KICKOFF_HOLD_DURATION: int = 10  # 1.0s hold before kickoff pass
 const GOAL_CELEBRATION_TICKS: int = 20  # 2.0s celebration freeze after goal
 
 # Velocity / momentum
-const ACCEL_RATE: float = 0.45          # lerp toward max speed per tick (smoother ramp-up)
-const DECEL_RATE: float = 0.40          # lerp for braking on direction change
+const ACCEL_RATE: float = 0.50          # lerp toward max speed per tick
+const DECEL_RATE: float = 0.55          # lerp for braking - stop decisively, don't glide
 const STEER_RATE: float = 0.30          # lerp for direction change per tick (less twitchy)
 const DIRECTION_CHANGE_THRESHOLD: float = 0.15  # dot product < this = big turn (~80 degrees)
 const COMMIT_TICKS_ON_TURN: int = 4     # ticks of reduced speed after major direction change
@@ -51,11 +51,13 @@ const CARRIER_SMOOTH: float = 1.0  # carrier - snap
 const SLOWDOWN_RADIUS: float = 0.05
 const ARRIVAL_RADIUS: float = 0.008
 const MIN_DRIFT_SPEED: float = 0.0  # no drift - stop cleanly at target
-const IDEAL_DEAD_ZONE: float = 0.020  # ignore ideal position changes smaller than this
+const IDEAL_DEAD_ZONE: float = 0.055  # goblins hold position until target moves significantly
 
-# Separation
-const SEPARATION_DIST: float = 0.055
-const SEPARATION_FORCE: float = 0.02
+# Collision / Separation
+const SEPARATION_DIST: float = 0.08   # same-team spacing (don't bunch)
+const SEPARATION_FORCE: float = 0.04  # soft push for teammates
+const COLLISION_RADIUS: float = 0.04  # body radius - goblins can't overlap
+const COLLISION_FORCE: float = 0.12   # hard push for opposing players
 
 # ── Home positions (normalized) ─────────────────────────────────────────────
 
@@ -1283,11 +1285,13 @@ func _update_ideal_positions() -> void:
 		var team_phase: TeamPhase = _home_phase if is_home else _away_phase
 		var in_poss: bool = my_team_has_ball and not is_loose
 
+		# Force immediate reposition on possession change (react to turnovers)
+		var possession_changed: bool = home_won_ball or away_won_ball or home_lost_ball or away_lost_ball
 		gs["roam_timer"] = _gf(gs, "roam_timer") - TICK_DELTA
-		if _gf(gs, "roam_timer") <= 0.0:
+		if _gf(gs, "roam_timer") <= 0.0 or possession_changed:
 			_refresh_roam_target(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
 		gs["support_timer"] = _gf(gs, "support_timer") - TICK_DELTA
-		if _gf(gs, "support_timer") <= 0.0:
+		if _gf(gs, "support_timer") <= 0.0 or possession_changed:
 			_refresh_support_target(goblin, gs, is_home, in_poss, team_phase, carrier_x, carrier_y)
 
 		if can_run and my_team_has_ball and not is_loose and team_runners < 3 and carrier_is_home == is_home:
@@ -1423,25 +1427,28 @@ func _roam_weight(goblin: GoblinData, in_poss: bool) -> float:
 			return 0.36 if in_poss else 0.26
 
 func _shape_weight(goblin: GoblinData, team_phase: TeamPhase, in_poss: bool) -> float:
+	## How much formation shape dominates vs roam. Higher = more disciplined.
 	match goblin.position:
 		"keeper":
 			return 0.95
 		"anchor", "sweeper":
-			return 0.62 if in_poss else 0.74
+			return 0.82 if in_poss else 0.90
 		"enforcer":
-			return 0.55 if in_poss else 0.68
+			return 0.75 if in_poss else 0.85
 		"wing_back":
-			return 0.40 if in_poss else 0.52
+			return 0.70 if in_poss else 0.78
+		"winger":
+			return 0.72 if in_poss else 0.80
 		"midfielder":
-			return 0.35 if in_poss else 0.45
+			return 0.65 if in_poss else 0.75
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			return 0.22 if in_poss else 0.30
-		"attacking_mid", "shadow_striker", "winger":
-			return 0.18 if in_poss else 0.26
+			return 0.60 if in_poss else 0.70
+		"attacking_mid", "shadow_striker":
+			return 0.55 if in_poss else 0.65
 		"poacher", "striker", "target_man":
-			return 0.14 if in_poss else 0.22
+			return 0.58 if in_poss else 0.68
 		_:
-			return 0.28 if in_poss else 0.36
+			return 0.60 if in_poss else 0.70
 
 func _support_shift_limit(goblin: GoblinData, in_poss: bool) -> Vector2:
 	match goblin.position:
@@ -1459,15 +1466,17 @@ func _support_shift_limit(goblin: GoblinData, in_poss: bool) -> Vector2:
 			return Vector2(0.05, 0.06)
 
 func _support_refresh_time(goblin: GoblinData) -> float:
+	## How long a goblin holds position before checking for a new spot.
+	## Longer = less drift, more "planted" look.
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box":
-			return randf_range(1.0, 1.6)
+			return randf_range(3.0, 5.0)
 		"winger", "wing_back", "shadow_striker", "attacking_mid":
-			return randf_range(1.0, 1.8)
+			return randf_range(3.5, 5.5)
 		"anchor", "sweeper", "enforcer", "keeper":
-			return randf_range(1.6, 2.4)
+			return randf_range(5.0, 8.0)
 		_:
-			return randf_range(1.2, 2.0)
+			return randf_range(4.0, 6.0)
 
 func _desired_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
 		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> Vector2:
@@ -1480,26 +1489,26 @@ func _expand_roam_rect(rect: Array, goblin: GoblinData, in_poss: bool) -> Array:
 	var x_max: float = float(rect[1])
 	var y_min: float = float(rect[2])
 	var y_max: float = float(rect[3])
-	var x_pad: float = 0.02
-	var y_pad: float = 0.03
+	# Tight expansion - roam is now secondary to shape, so keep zones small
+	var x_pad: float = 0.01
+	var y_pad: float = 0.02
 
 	match goblin.position:
 		"playmaker", "trequartista", "box_to_box", "false_nine":
-			x_pad += 0.03
-			y_pad += 0.05
-		"attacking_mid", "shadow_striker", "midfielder":
 			x_pad += 0.02
-			y_pad += 0.04
-		"winger", "wing_back":
+			y_pad += 0.03
+		"attacking_mid", "shadow_striker", "midfielder":
 			x_pad += 0.01
 			y_pad += 0.02
+		"winger", "wing_back":
+			x_pad += 0.01
+			y_pad += 0.01
 		"anchor", "sweeper", "enforcer":
-			x_pad -= 0.01
-			y_pad -= 0.01
+			pass  # no expansion
 
 	if in_poss:
 		x_pad += 0.01
-		y_pad += 0.02
+		y_pad += 0.01
 
 	return [
 		clampf(x_min - x_pad, 0.02, 0.98),
@@ -1597,11 +1606,11 @@ func _refresh_roam_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_
 
 	gs["roam_x"] = clampf(target_x, x_min, x_max)
 	gs["roam_y"] = clampf(target_y, y_min, y_max)
-	gs["roam_timer"] = randf_range(1.8, 3.2)
+	gs["roam_timer"] = randf_range(5.0, 8.0)
 	if goblin.position == "playmaker" or goblin.position == "trequartista":
-		gs["roam_timer"] = randf_range(1.4, 2.4)
+		gs["roam_timer"] = randf_range(4.0, 6.0)
 	elif goblin.position == "anchor" or goblin.position == "sweeper":
-		gs["roam_timer"] = randf_range(2.8, 4.5)
+		gs["roam_timer"] = randf_range(6.0, 10.0)
 
 func _refresh_support_target(goblin: GoblinData, gs: Dictionary, is_home: bool, in_poss: bool,
 		team_phase: TeamPhase, carrier_x: float, carrier_y: float) -> void:
@@ -1638,19 +1647,22 @@ func _determine_team_phase(is_home: bool, team_has_ball: bool, opponent_has_ball
 	return TeamPhase.LOOSE_BALL
 
 func _shape_profile(phase: TeamPhase) -> Dictionary:
+	## attack/midfield/defense = how far up the pitch (0-1 progress).
+	## width = lateral spread multiplier. compact = how much defending narrows lanes.
+	## ball_pull = how much the whole team slides toward the ball's y position.
 	match phase:
 		TeamPhase.BUILD_UP:
-			return {"attack": 0.68, "midfield": 0.48, "defense": 0.29, "width": 1.22, "compact": 0.70, "ball_pull": 0.04}
+			return {"attack": 0.72, "midfield": 0.50, "defense": 0.30, "width": 1.55, "compact": 0.80, "ball_pull": 0.14}
 		TeamPhase.FINAL_THIRD:
-			return {"attack": 0.82, "midfield": 0.63, "defense": 0.40, "width": 1.30, "compact": 0.64, "ball_pull": 0.05}
+			return {"attack": 0.86, "midfield": 0.68, "defense": 0.46, "width": 1.50, "compact": 0.75, "ball_pull": 0.16}
 		TeamPhase.COUNTER_ATTACK:
-			return {"attack": 0.76, "midfield": 0.56, "defense": 0.34, "width": 1.16, "compact": 0.58, "ball_pull": 0.05}
+			return {"attack": 0.82, "midfield": 0.60, "defense": 0.38, "width": 1.40, "compact": 0.70, "ball_pull": 0.12}
 		TeamPhase.COUNTER_PRESS:
-			return {"attack": 0.54, "midfield": 0.42, "defense": 0.24, "width": 0.96, "compact": 0.60, "ball_pull": 0.10}
+			return {"attack": 0.58, "midfield": 0.46, "defense": 0.28, "width": 1.20, "compact": 0.75, "ball_pull": 0.18}
 		TeamPhase.DEFENSIVE_BLOCK:
-			return {"attack": 0.46, "midfield": 0.32, "defense": 0.17, "width": 0.95, "compact": 0.58, "ball_pull": 0.08}
+			return {"attack": 0.42, "midfield": 0.28, "defense": 0.15, "width": 1.15, "compact": 0.72, "ball_pull": 0.20}
 		_:
-			return {"attack": 0.56, "midfield": 0.40, "defense": 0.24, "width": 1.08, "compact": 0.56, "ball_pull": 0.05}
+			return {"attack": 0.58, "midfield": 0.42, "defense": 0.26, "width": 1.35, "compact": 0.72, "ball_pull": 0.14}
 
 func _team_progress(x: float, is_home: bool) -> float:
 	return clampf(x, 0.0, 1.0) if is_home else clampf(1.0 - x, 0.0, 1.0)
@@ -1679,36 +1691,47 @@ func _get_position_slot(goblin: GoblinData, gs: Dictionary, is_home: bool, in_po
 	var progress: float = role_progress
 	var target_y: float = 0.5 + lane_offset * width_scale
 
+	# Ball-side shift: whole team slides toward the ball's y (like real football)
+	var ball_shift_y: float = (carrier_y - 0.5) * ball_pull
+
 	if in_poss:
 		match zone:
 			"attack":
 				progress = maxf(progress, ball_progress + 0.08)
-				target_y = 0.5 + lane_offset * width_scale * 1.08 + (carrier_y - 0.5) * ball_pull * 0.65
+				target_y = 0.5 + lane_offset * width_scale * 1.08 + ball_shift_y
 			"midfield":
 				progress = lerpf(progress, ball_progress + 0.02, 0.35)
-				target_y = 0.5 + lane_offset * width_scale * 0.95 + (carrier_y - 0.5) * ball_pull
+				target_y = 0.5 + lane_offset * width_scale * 0.95 + ball_shift_y
 			"defense":
 				progress += maxf(0.0, ball_progress - 0.45) * 0.22
-				target_y = 0.5 + lane_offset * width_scale * 0.80 + (carrier_y - 0.5) * ball_pull * 0.55
+				target_y = 0.5 + lane_offset * width_scale * 0.80 + ball_shift_y * 0.7
 	else:
 		match zone:
 			"attack":
 				progress = lerpf(progress, 0.52, 0.35)
-				target_y = lerpf(0.5 + lane_offset * width_scale * compactness, carrier_y, ball_pull * 0.45)
+				target_y = 0.5 + lane_offset * width_scale * compactness + ball_shift_y * 0.6
 			"midfield":
 				progress = lerpf(progress, maxf(0.20, ball_progress - 0.06), 0.35)
-				target_y = lerpf(0.5 + lane_offset * width_scale * compactness, carrier_y, ball_pull)
+				target_y = 0.5 + lane_offset * width_scale * compactness + ball_shift_y
 			"defense":
+				# Defenders form a flat line - same progress, compact
 				progress = lerpf(progress, maxf(0.12, ball_progress - 0.14), 0.40)
-				target_y = lerpf(0.5 + lane_offset * width_scale * compactness * 0.9, carrier_y, ball_pull * 0.70)
+				target_y = 0.5 + lane_offset * width_scale * compactness * 0.9 + ball_shift_y * 0.8
 
 	match goblin.position:
 		"winger":
-			target_y = 0.5 + lane_offset * width_scale * 1.22 + (carrier_y - 0.5) * 0.10
+			# Wingers MUST hold width - they stretch the play
+			var winger_side: float = signf(lane_offset)
+			if winger_side == 0.0:
+				winger_side = 1.0
+			target_y = 0.5 + winger_side * 0.38 + (carrier_y - 0.5) * 0.08
 			if in_poss:
 				progress += 0.03
 		"wing_back":
-			target_y = 0.5 + lane_offset * width_scale * 1.18 + (carrier_y - 0.5) * 0.12
+			var wb_side: float = signf(lane_offset)
+			if wb_side == 0.0:
+				wb_side = 1.0
+			target_y = 0.5 + wb_side * 0.32 + (carrier_y - 0.5) * 0.10
 			progress += 0.01 if in_poss else -0.01
 		"playmaker", "trequartista", "attacking_mid":
 			target_y = lerpf(target_y, carrier_y, 0.18)
@@ -1733,14 +1756,11 @@ func _get_position_slot(goblin: GoblinData, gs: Dictionary, is_home: bool, in_po
 	var ball_side: float = signf(carrier_y - 0.5)
 	var player_side: float = signf(home_y - 0.5)
 	if ball_side != 0.0 and player_side != ball_side and zone != "goal":
-		target_y += player_side * 0.03
+		target_y += player_side * 0.04
 
 	progress = clampf(progress, 0.08, 0.92)
 	target_y = clampf(target_y, 0.08, 0.92)
-	var anchor := Vector2(_from_progress(progress, is_home), target_y)
-	var roam := Vector2(_gf(gs, "roam_x"), _gf(gs, "roam_y"))
-	var shape_weight: float = _shape_weight(goblin, team_phase, in_poss)
-	return roam.lerp(anchor, shape_weight)
+	return Vector2(_from_progress(progress, is_home), target_y)
 
 # ── Movement (Arrival Behavior) ───────────────────────────────────────────
 
@@ -1891,11 +1911,16 @@ func _move_all_goblins() -> void:
 		gs["vel_x"] = vel_x
 		gs["vel_y"] = vel_y
 
-		# Update facing
+		# Update facing: moving = face movement direction, still = face the ball
 		if absf(vel_x) > 0.001:
 			gs["facing"] = 1.0 if vel_x > 0 else -1.0
+		else:
+			var ball_dx: float = ball.x - _gf(gs, "x")
+			if absf(ball_dx) > 0.02:
+				gs["facing"] = 1.0 if ball_dx > 0 else -1.0
 
-	# Separation: push apart same-team goblins that are too close
+	# Collision: ALL goblins have physical bodies - no overlapping, both teams.
+	# Same-team = soft separation (maintain spacing). Opposing = hard collision (shoulder to shoulder).
 	var all_goblins: Array = goblin_states.keys()
 	for i in all_goblins.size():
 		for j in range(i + 1, all_goblins.size()):
@@ -1904,28 +1929,40 @@ func _move_all_goblins() -> void:
 			var gsa: Dictionary = goblin_states[ga]
 			var gsb: Dictionary = goblin_states[gb_gob]
 
-			if _gb(gsa, "is_home") != _gb(gsb, "is_home"):
-				continue
-
 			var sep_dx: float = _gf(gsa, "x") - _gf(gsb, "x")
 			var sep_dy: float = _gf(gsa, "y") - _gf(gsb, "y")
 			var sep_dist: float = sqrt(sep_dx * sep_dx + sep_dy * sep_dy)
+			var same_team: bool = _gb(gsa, "is_home") == _gb(gsb, "is_home")
 
-			if sep_dist < SEPARATION_DIST and sep_dist > 0.001:
-				var overlap: float = SEPARATION_DIST - sep_dist
-				var push: float = overlap * SEPARATION_FORCE / sep_dist
+			# Same team: soft separation at wider distance (don't bunch)
+			# Opposing: hard collision at body radius (can't walk through)
+			var collision_dist: float = SEPARATION_DIST if same_team else COLLISION_RADIUS
+			var push_strength: float = SEPARATION_FORCE if same_team else COLLISION_FORCE
+
+			if sep_dist < collision_dist and sep_dist > 0.001:
+				var overlap: float = collision_dist - sep_dist
+				var push: float = overlap * push_strength / sep_dist
+
+				# Strength determines who gives ground
 				var resist_a: float = float(ga.get_stat("strength")) * 0.60 + float(ga.get_stat("defense")) * 0.40
 				var resist_b: float = float(gb_gob.get_stat("strength")) * 0.60 + float(gb_gob.get_stat("defense")) * 0.40
+				# Ball carrier is harder to push
+				if ball.owner == ga:
+					resist_a *= 1.5
+				elif ball.owner == gb_gob:
+					resist_b *= 1.5
 				var total_resist: float = maxf(1.0, resist_a + resist_b)
 				var a_share: float = resist_b / total_resist
 				var b_share: float = resist_a / total_resist
-				# Push positions
+
+				# Hard position correction (no overlap allowed)
 				gsa["x"] = clampf(_gf(gsa, "x") + sep_dx * push * a_share, 0.02, 0.98)
 				gsa["y"] = clampf(_gf(gsa, "y") + sep_dy * push * a_share, 0.05, 0.95)
 				gsb["x"] = clampf(_gf(gsb, "x") - sep_dx * push * b_share, 0.02, 0.98)
 				gsb["y"] = clampf(_gf(gsb, "y") - sep_dy * push * b_share, 0.05, 0.95)
-				# Also nudge velocity so separation feels physical
-				var vel_push: float = push * 0.3
+
+				# Velocity bounce - players physically bump off each other
+				var vel_push: float = push * (0.5 if not same_team else 0.3)
 				gsa["vel_x"] = _gf(gsa, "vel_x") + sep_dx * vel_push * a_share
 				gsa["vel_y"] = _gf(gsa, "vel_y") + sep_dy * vel_push * a_share
 				gsb["vel_x"] = _gf(gsb, "vel_x") - sep_dx * vel_push * b_share

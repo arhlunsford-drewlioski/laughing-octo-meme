@@ -248,9 +248,9 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 		var dribble_target: Vector2 = _smart_dribble_target(ctx)
 		return Decision.new(Action.DRIBBLE, dribble_target.x, dribble_target.y)
 
-	# ── Default: carry the ball, pass when pressured or to progress play ──
+	# ── Default: zone-based decision making ──
+	# Own third = pass out. Mid third = carry or pass. Final third = dribble/create.
 
-	# Check space ahead
 	var space_ahead: bool = true
 	for opp in ctx.opponents:
 		var ox: float = _df(opp, "x")
@@ -261,44 +261,69 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 			break
 
 	var in_own_third: bool = (ctx.is_home and ctx.goblin_x < 0.35) or (not ctx.is_home and ctx.goblin_x > 0.65)
+	var in_final_third: bool = dist_to_goal < 0.35
 
-	# Space ahead and not settling: carry the ball forward (primary action)
-	var dribble_chance: float = clampf(0.55 + dribble_bias * 0.08 - (0.30 if under_pressure else 0.0), 0.10, 0.85)
-	if still_settling and not under_heavy_pressure:
-		dribble_chance = clampf(dribble_chance + 0.20, 0.30, 0.90)
-	# Defenders in own third prefer to pass out
-	if in_own_third and _is_pos(ctx.goblin, ["anchor", "sweeper", "enforcer", "wing_back"]):
-		dribble_chance *= 0.3
-	if space_ahead and randf() < dribble_chance:
-		var dribble_target: Vector2 = _smart_dribble_target(ctx)
-		return Decision.new(Action.DRIBBLE, dribble_target.x, dribble_target.y)
-
-	# No space or chose not to dribble: look for a pass
-	if not still_settling:
-		# Under pressure: release quickly
-		if under_pressure:
+	# ── OWN THIRD: quick passing, build from the back ──
+	if in_own_third and not still_settling:
+		# Defenders almost always pass out (1-2 touch)
+		if _is_pos(ctx.goblin, ["anchor", "sweeper", "enforcer", "wing_back", "keeper"]):
 			var fwd2: Dictionary = _find_forward_teammate(ctx)
 			if not fwd2.is_empty():
 				return Decision.new(Action.PASS, _df(fwd2, "x"), _df(fwd2, "y"), _dg(fwd2))
-			var best2: Dictionary = _find_best_pass(ctx)
-			if not best2.is_empty():
-				return Decision.new(Action.PASS, _df(best2, "x"), _df(best2, "y"), _dg(best2))
-		# Own third: build out with a pass
-		elif in_own_third:
-			var fwd3: Dictionary = _find_forward_teammate(ctx)
-			if not fwd3.is_empty() and randf() < 0.65:
-				return Decision.new(Action.PASS, _df(fwd3, "x"), _df(fwd3, "y"), _dg(fwd3))
 			var safe: Dictionary = _find_best_pass(ctx)
 			if not safe.is_empty():
 				return Decision.new(Action.PASS, _df(safe, "x"), _df(safe, "y"), _dg(safe))
-		# Creative players and blocked dribblers: pass to progress
-		elif pass_risk_bias > 0.8 or not space_ahead:
-			var fwd4: Dictionary = _find_forward_teammate(ctx)
-			if not fwd4.is_empty() and randf() < 0.55:
-				return Decision.new(Action.PASS, _df(fwd4, "x"), _df(fwd4, "y"), _dg(fwd4))
-			var best3: Dictionary = _find_best_pass(ctx)
-			if not best3.is_empty() and randf() < 0.50:
-				return Decision.new(Action.PASS, _df(best3, "x"), _df(best3, "y"), _dg(best3))
+		# Midfielders in own third: pass forward or carry out
+		else:
+			var fwd3: Dictionary = _find_forward_teammate(ctx)
+			if not fwd3.is_empty() and randf() < 0.70:
+				return Decision.new(Action.PASS, _df(fwd3, "x"), _df(fwd3, "y"), _dg(fwd3))
+			if space_ahead and randf() < 0.40 + dribble_bias * 0.05:
+				var dt: Vector2 = _smart_dribble_target(ctx)
+				return Decision.new(Action.DRIBBLE, dt.x, dt.y)
+			var best2: Dictionary = _find_best_pass(ctx)
+			if not best2.is_empty():
+				return Decision.new(Action.PASS, _df(best2, "x"), _df(best2, "y"), _dg(best2))
+
+	# ── FINAL THIRD: dribble, create, take risks ──
+	elif in_final_third and not still_settling:
+		# Skilled dribblers carry the ball to create
+		if space_ahead and randf() < 0.55 + dribble_bias * 0.10:
+			var dt: Vector2 = _smart_dribble_target(ctx)
+			return Decision.new(Action.DRIBBLE, dt.x, dt.y)
+		# Try killer ball
+		var fwd4: Dictionary = _find_forward_teammate(ctx)
+		if not fwd4.is_empty() and randf() < 0.60:
+			return Decision.new(Action.PASS, _df(fwd4, "x"), _df(fwd4, "y"), _dg(fwd4))
+		var best3: Dictionary = _find_best_pass(ctx)
+		if not best3.is_empty() and randf() < 0.55:
+			return Decision.new(Action.PASS, _df(best3, "x"), _df(best3, "y"), _dg(best3))
+		# No option: carry it
+		var dt2: Vector2 = _smart_dribble_target(ctx)
+		return Decision.new(Action.DRIBBLE, dt2.x, dt2.y)
+
+	# ── MIDDLE THIRD: mix of carry and pass ──
+	else:
+		# Under pressure: release
+		if under_pressure and not still_settling:
+			var fwd5: Dictionary = _find_forward_teammate(ctx)
+			if not fwd5.is_empty():
+				return Decision.new(Action.PASS, _df(fwd5, "x"), _df(fwd5, "y"), _dg(fwd5))
+			var best4: Dictionary = _find_best_pass(ctx)
+			if not best4.is_empty():
+				return Decision.new(Action.PASS, _df(best4, "x"), _df(best4, "y"), _dg(best4))
+		# Space: carry forward
+		if space_ahead and randf() < 0.50 + dribble_bias * 0.08:
+			var dt3: Vector2 = _smart_dribble_target(ctx)
+			return Decision.new(Action.DRIBBLE, dt3.x, dt3.y)
+		# Pass to progress
+		if not still_settling:
+			var fwd6: Dictionary = _find_forward_teammate(ctx)
+			if not fwd6.is_empty() and randf() < 0.60:
+				return Decision.new(Action.PASS, _df(fwd6, "x"), _df(fwd6, "y"), _dg(fwd6))
+			var best5: Dictionary = _find_best_pass(ctx)
+			if not best5.is_empty() and randf() < 0.50:
+				return Decision.new(Action.PASS, _df(best5, "x"), _df(best5, "y"), _dg(best5))
 
 	# Fallback: dribble forward
 	var dribble_target: Vector2 = _smart_dribble_target(ctx)
