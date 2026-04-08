@@ -49,12 +49,9 @@ var _jitter_timers: Dictionary = {}  # token -> next jitter time
 # Snapshot-driven mode
 var _snapshot_active: bool = false
 var _raw_targets: Dictionary = {}      # goblin_name -> Vector2 (from sim, updated per tick)
-var _smooth_targets: Dictionary = {}   # goblin_name -> Vector2 (smoothed, lerped toward raw)
 var _raw_ball_target: Vector2 = Vector2.ZERO
-var _smooth_ball_target: Vector2 = Vector2.ZERO
-const TARGET_SMOOTH_SPEED: float = 6.0  # how fast smooth targets chase raw targets
-const TOKEN_LERP_SPEED: float = 5.0    # how fast tokens chase smooth targets
-const BALL_LERP_SPEED: float = 10.0    # ball tracks faster than tokens
+const TOKEN_LERP_SPEED: float = 8.0    # direct token easing; less floaty than double smoothing
+const BALL_LERP_SPEED: float = 6.0      # ball readable speed
 
 func setup(p_formation: Formation, o_formation: Formation) -> void:
 	player_formation = p_formation
@@ -209,7 +206,7 @@ func _get_zone_positions(zone: String, count: int, is_player: bool) -> Array[Vec
 
 func apply_snapshot(snapshot: Dictionary) -> void:
 	## Update raw target positions from a MatchSimulation state snapshot.
-	## Smooth targets and actual tokens lerp toward these in _process().
+	## Tokens ease directly toward these in _process() so movement stays readable.
 	_snapshot_active = true
 	idle_paused = true
 
@@ -223,15 +220,10 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 		var target_center: Vector2 = _pitch_pos(float(gdata["x"]), float(gdata["y"]))
 		var target_pos: Vector2 = target_center - Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
 		_raw_targets[goblin_name] = target_pos
-		# Initialize smooth target on first snapshot
-		if not _smooth_targets.has(goblin_name):
-			_smooth_targets[goblin_name] = target_pos
 
 	# Update raw ball target
 	var ball_data: Dictionary = snapshot["ball"]
 	_raw_ball_target = _pitch_pos(float(ball_data["x"]), float(ball_data["y"]))
-	if _smooth_ball_target == Vector2.ZERO:
-		_smooth_ball_target = _raw_ball_target
 
 # -- Animation --
 
@@ -242,27 +234,17 @@ func _process(delta: float) -> void:
 		_process_idle(delta)
 
 func _process_snapshot_lerp(delta: float) -> void:
-	## Double-smoothed interpolation for buttery 60fps motion.
-	## Layer 1: smooth targets chase raw targets (absorbs per-tick jumps)
-	## Layer 2: tokens chase smooth targets (visual glide)
-	var target_lerp: float = 1.0 - exp(-TARGET_SMOOTH_SPEED * delta)
+	## Single-stage interpolation keeps motion readable and avoids the
+	## "pushed around by waves" look from double smoothing.
 	var token_lerp: float = 1.0 - exp(-TOKEN_LERP_SPEED * delta)
 	var ball_lerp: float = 1.0 - exp(-BALL_LERP_SPEED * delta)
 
-	# Layer 1: smooth targets toward raw targets
+	# Tokens move directly toward the latest sim position.
 	for goblin_name: String in _raw_targets:
-		if _smooth_targets.has(goblin_name):
-			_smooth_targets[goblin_name] = _smooth_targets[goblin_name].lerp(
-				_raw_targets[goblin_name], target_lerp)
-		else:
-			_smooth_targets[goblin_name] = _raw_targets[goblin_name]
-
-	# Layer 2: tokens toward smooth targets
-	for goblin_name: String in _smooth_targets:
 		if not _token_map.has(goblin_name):
 			continue
 		var token: Control = _token_map[goblin_name]
-		var target: Vector2 = _smooth_targets[goblin_name]
+		var target: Vector2 = _raw_targets[goblin_name]
 		token.position = token.position.lerp(target, token_lerp)
 		token.base_position = target
 

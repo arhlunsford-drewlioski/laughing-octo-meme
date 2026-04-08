@@ -16,11 +16,23 @@ func _init() -> void:
 
 	var shot_count: int = 0
 	var goal_count: int = 0
+	var event_counts: Dictionary = {}
 
+	var tick_num: int = 0
 	while not sim.is_match_over():
 		snapshot = sim.tick()
+		tick_num += 1
+		if tick_num % 100 == 0:
+			for g in snapshot["goblins"]:
+				if g["has_ball"]:
+					print("  t%d: %s at (%.2f,%.2f) team=%s" % [tick_num, g["name"], g["x"], g["y"], g["team"]])
+					break
+			if snapshot["ball"]["owner_name"] == "":
+				print("  t%d: ball free at (%.2f,%.2f) state=%s" % [tick_num, snapshot["ball"]["x"], snapshot["ball"]["y"], snapshot["ball"]["state"]])
 		var events: Array = snapshot["events"]
 		for event: Dictionary in events:
+			var etype2: String = str(event["type"])
+			event_counts[etype2] = event_counts.get(etype2, 0) + 1
 			var m: int = int(snapshot["clock"])
 			var etype: String = str(event["type"])
 			match etype:
@@ -50,4 +62,8 @@ func _init() -> void:
 	print("Shots: %d | Goals: %d" % [shot_count, goal_count])
 	print("")
 	print(sim.get_debug_summary())
+	print("")
+	print("Event counts:")
+	for k in event_counts:
+		print("  %s: %d" % [k, event_counts[k]])
 	quit()

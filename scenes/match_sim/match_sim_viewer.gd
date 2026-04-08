@@ -13,8 +13,8 @@ var home_formation: Formation
 var away_formation: Formation
 
 var _tick_accumulator: float = 0.0
-var _speed_multiplier: float = 1.0
-const SPEED_OPTIONS := [1.0, 2.0, 4.0, 8.0]
+var _speed_multiplier: float = 0.6
+const SPEED_OPTIONS := [0.6, 1.0, 1.5, 2.0, 4.0]
 var _speed_index: int = 0
 
 func _ready() -> void:
@@ -25,6 +25,7 @@ func _ready() -> void:
 	UITheme.style_button(speed_btn, false)
 	score_label.add_theme_color_override("font_color", UITheme.GOLD_LIGHT)
 	clock_label.add_theme_color_override("font_color", UITheme.CREAM)
+	speed_btn.text = _speed_text()
 
 	_setup_and_start()
 
@@ -111,7 +112,10 @@ func _on_match_over(snapshot: Dictionary) -> void:
 func _cycle_speed() -> void:
 	_speed_index = (_speed_index + 1) % SPEED_OPTIONS.size()
 	_speed_multiplier = SPEED_OPTIONS[_speed_index]
-	speed_btn.text = "%dx" % int(_speed_multiplier)
+	speed_btn.text = _speed_text()
+
+func _speed_text() -> String:
+	return "%.1fx" % _speed_multiplier if _speed_multiplier < 1.0 or fmod(_speed_multiplier, 1.0) != 0.0 else "%dx" % int(_speed_multiplier)
 
 func _log(text: String) -> void:
 	event_log.append_text(text + "\n")
