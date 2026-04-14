@@ -73,7 +73,7 @@ var _haste_active: bool = false
 
 # Pass line visualization (disabled)
 var _pass_lines: Array = []
-const PASS_LINE_FADE: float = 3.0
+const PASS_LINE_FADE: float = 0.45
 
 func setup(p_formation: Formation, o_formation: Formation) -> void:
 	player_formation = p_formation
@@ -345,13 +345,37 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 # -- Animation --
 
 func show_pass_line(_from_name: String, _to_name: String, _line_color: Color = Color(1, 1, 1, 0.5)) -> void:
-	pass  # Disabled - pass lines removed
+	if _from_name == "" or _to_name == "":
+		return
+	if not _token_map.has(_from_name) or not _token_map.has(_to_name):
+		return
+	_pass_lines.append({
+		"from": _from_name,
+		"to": _to_name,
+		"color": _line_color,
+		"ttl": PASS_LINE_FADE,
+	})
+	while _pass_lines.size() > 10:
+		_pass_lines.pop_front()
+	queue_redraw()
 
 func _process(delta: float) -> void:
 	if _snapshot_active:
 		_process_snapshot_lerp(delta)
 	elif not idle_paused:
 		_process_idle(delta)
+
+	var pass_lines_dirty: bool = false
+	for i in range(_pass_lines.size() - 1, -1, -1):
+		var line_data: Dictionary = _pass_lines[i]
+		line_data["ttl"] = float(line_data.get("ttl", 0.0)) - delta
+		if float(line_data["ttl"]) <= 0.0:
+			_pass_lines.remove_at(i)
+		else:
+			_pass_lines[i] = line_data
+		pass_lines_dirty = true
+	if pass_lines_dirty:
+		queue_redraw()
 
 	# Explosion effect
 	if _explosion_active:
@@ -438,9 +462,28 @@ func _draw() -> void:
 	# Letterbox background
 	draw_rect(Rect2(Vector2.ZERO, size), LETTERBOX_COLOR)
 	_draw_pitch()
+	_draw_pass_lines()
 	_draw_extra_balls()
 	_draw_haste_glow()
 	_draw_explosion()
+
+func _draw_pass_lines() -> void:
+	for line_data in _pass_lines:
+		var from_name: String = str(line_data.get("from", ""))
+		var to_name: String = str(line_data.get("to", ""))
+		if not _token_map.has(from_name) or not _token_map.has(to_name):
+			continue
+		var from_token: Control = _token_map[from_name]
+		var to_token: Control = _token_map[to_name]
+		if not is_instance_valid(from_token) or not is_instance_valid(to_token):
+			continue
+		var alpha: float = clampf(float(line_data.get("ttl", 0.0)) / PASS_LINE_FADE, 0.0, 1.0)
+		var base_color: Color = line_data.get("color", Color(1, 1, 1, 0.45))
+		var color := Color(base_color.r, base_color.g, base_color.b, base_color.a * alpha)
+		var from_pos := from_token.position + Vector2(from_token.TOKEN_RADIUS, from_token.TOKEN_RADIUS)
+		var to_pos := to_token.position + Vector2(to_token.TOKEN_RADIUS, to_token.TOKEN_RADIUS)
+		draw_line(from_pos, to_pos, color, 2.0)
+		draw_circle(to_pos, 3.0, color)
 
 func _draw_extra_balls() -> void:
 	for pos in _extra_ball_lerped:
@@ -455,8 +498,8 @@ func _draw_haste_glow() -> void:
 	# Subtle green glow around all player tokens
 	for token in _player_tokens:
 		if is_instance_valid(token):
-			var center: Vector2 = token.position + Vector2(18, 18)  # TOKEN_RADIUS
-			draw_arc(center, 22, 0, TAU, 24, Color(0.2, 1.0, 0.3, 0.4), 2.0)
+			var center: Vector2 = token.position + Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
+			draw_arc(center, token.TOKEN_RADIUS + 4, 0, TAU, 24, Color(0.2, 1.0, 0.3, 0.4), 2.0)
 
 func _draw_explosion() -> void:
 	if not _explosion_active:

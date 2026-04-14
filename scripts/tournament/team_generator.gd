@@ -24,7 +24,10 @@ const SUFFIXES: Array[String] = [
 ]
 
 static func generate_teams(count: int) -> Array[TeamData]:
-	## Generate count AI teams with unique names, factions, and rosters.
+	## Generate count AI teams with unique names, factions, and difficulty-scaled rosters.
+	## First ~12 teams are group-stage level (easy), next ~8 are knockout (medium),
+	## last ~11 are late-knockout (hard). The player only faces teams from their group
+	## in the group stage, then bracket opponents scale up.
 	var prefixes := PREFIXES.duplicate()
 	var suffixes := SUFFIXES.duplicate()
 	prefixes.shuffle()
@@ -37,7 +40,15 @@ static func generate_teams(count: int) -> Array[TeamData]:
 		var team := TeamData.new()
 		team.team_name = prefixes[i % prefixes.size()] + " " + suffixes[i % suffixes.size()]
 		team.faction = factions[i % factions.size()]
-		team.roster = GoblinDatabase.generate_opponent_roster(team.faction)
+
+		# Difficulty scales with team index (shuffled into groups/bracket later)
+		# Range 0.0 (weakest) to 1.0 (strongest)
+		var difficulty: float = float(i) / float(maxi(count - 1, 1))
+		# Add variance so not every late team is identical
+		difficulty += randf_range(-0.1, 0.1)
+		difficulty = clampf(difficulty, 0.0, 1.0)
+
+		team.roster = GoblinGenerator.generate_scaled_opponent_roster(team.faction, difficulty)
 		team.formation = GoblinDatabase.build_default_formation(team.roster)
 		team.is_player = false
 		teams.append(team)

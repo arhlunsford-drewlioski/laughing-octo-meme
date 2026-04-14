@@ -30,6 +30,46 @@ var injury: InjuryState = InjuryState.HEALTHY
 ## Stat penalties applied by current injury (-1 per minor, -2 per major)
 var injury_stat_penalties: Dictionary = {}
 
+# ── XP / Leveling ───────────────────────────────────────────────────────────
+var xp: int = 0
+var level: int = 1
+
+const XP_PER_LEVEL_BASE: int = 100  # XP needed = XP_PER_LEVEL_BASE * level
+
+func xp_to_next_level() -> int:
+	return XP_PER_LEVEL_BASE * level
+
+func add_xp(amount: int) -> int:
+	## Add XP and auto-level. Returns number of levels gained.
+	xp += amount
+	var levels_gained := 0
+	while xp >= xp_to_next_level():
+		xp -= xp_to_next_level()
+		level += 1
+		_apply_level_up()
+		levels_gained += 1
+	return levels_gained
+
+func _apply_level_up() -> void:
+	## +1 to a stat, weighted toward position's primary stats.
+	var primary_stats := PositionDatabase.get_primary_stats(position)
+	var pool: Array[String] = []
+	for stat_name in STAT_KEYS:
+		pool.append(stat_name)
+		if stat_name in primary_stats:
+			pool.append(stat_name)  # Double weight for primary stats
+	pool.shuffle()
+	var chosen: String = pool[0]
+	set(chosen, mini(get(chosen) + 1, 10))
+
+# ── Fatigue (0-10) ───────────────────────────────────────────────────────────
+## 0 = fresh, 10 = exhausted. Playing a match adds FATIGUE_PER_MATCH, resting removes FATIGUE_REST.
+## At fatigue >= FATIGUE_PENALTY_THRESHOLD, speed and defense get -1 each.
+var fatigue: int = 0
+const FATIGUE_PER_MATCH: int = 3
+const FATIGUE_REST: int = 2
+const FATIGUE_PENALTY_THRESHOLD: int = 5
+
 # ── Morale (1-10) ────────────────────────────────────────────────────────────
 var morale: int = 7
 
@@ -48,7 +88,9 @@ func get_stat(stat_name: String) -> int:
 	var base: int = get(stat_name) if stat_name in STAT_KEYS else 0
 	var penalty: int = injury_stat_penalties.get(stat_name, 0)
 	var buff: int = _get_effect_modifier(stat_name)
-	return clampi(base + penalty + buff, 1, 15)
+	var fatigue_penalty: int = _get_fatigue_penalty(stat_name)
+	var item_bonus: int = _get_item_bonus(stat_name)
+	return clampi(base + penalty + buff + fatigue_penalty + item_bonus, 1, 15)
 
 func get_stat_dict() -> Dictionary:
 	var d := {}
@@ -62,6 +104,44 @@ func _get_effect_modifier(stat_name: String) -> int:
 		if effect.has("stat") and effect["stat"] == stat_name:
 			total += effect.get("amount", 0)
 	return total
+
+# ── Equipment helpers ────────────────────────────────────────────────────────
+
+func _get_item_bonus(stat_name: String) -> int:
+	if equipped_item and equipped_item is ItemData:
+		return equipped_item.get_stat_bonus(stat_name)
+	return 0
+
+func equip_item(item: ItemData) -> ItemData:
+	## Equip an item, returning the previously equipped item (or null).
+	var old := equipped_item as ItemData
+	equipped_item = item
+	return old
+
+func unequip_item() -> ItemData:
+	## Remove and return the equipped item.
+	var old := equipped_item as ItemData
+	equipped_item = null
+	return old
+
+func has_item() -> bool:
+	return equipped_item != null and equipped_item is ItemData
+
+# ── Fatigue helpers ──────────────────────────────────────────────────────────
+
+func _get_fatigue_penalty(stat_name: String) -> int:
+	if fatigue >= FATIGUE_PENALTY_THRESHOLD and stat_name in ["speed", "defense"]:
+		return -1
+	return 0
+
+func add_match_fatigue() -> void:
+	fatigue = mini(fatigue + FATIGUE_PER_MATCH, 10)
+
+func rest() -> void:
+	fatigue = maxi(fatigue - FATIGUE_REST, 0)
+
+func is_fatigued() -> bool:
+	return fatigue >= FATIGUE_PENALTY_THRESHOLD
 
 # ── Injury helpers ───────────────────────────────────────────────────────────
 
@@ -101,3 +181,4 @@ func is_available() -> bool:
 func reset_for_match() -> void:
 	active_effects.clear()
 	stamina = 100.0
+	# Note: fatigue is NOT reset here - it persists across matches

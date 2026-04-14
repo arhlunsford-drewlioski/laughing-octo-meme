@@ -1,8 +1,8 @@
 extends Control
 ## Individual goblin token node. Can be tweened, highlighted, and later swapped for sprite art.
 
-const TOKEN_RADIUS := 18.0
-const TOKEN_FONT_SIZE := 10
+const TOKEN_RADIUS := 26.0
+const TOKEN_FONT_SIZE := 11
 
 const PLAYER_BG := Color(0.18, 0.35, 0.22)
 const PLAYER_BORDER := Color(0.788, 0.659, 0.298)

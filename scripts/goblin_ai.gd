@@ -51,6 +51,12 @@ class Context:
 	var settle_time: float = 0.0
 	var role: int = TeamCoordinator.Role.HOLDER  # assigned by TeamCoordinator
 	var zone_rect: Array = [0.0, 1.0, 0.0, 1.0]  # [x_min, x_max, y_min, y_max]
+	var tendency_with_ball: String = ""
+	var tendency_own_team: String = ""
+	var tendency_opponent: String = ""
+	var teammate_run_states: Dictionary = {}  # GoblinData -> run_ticks (> 0 = making a run)
+	var team_possession_time: float = 0.0
+	var stale_possession_time: float = 0.0
 
 # ── Dict helpers (teammate/opponent entries are Dictionaries) ───────────────
 
@@ -143,23 +149,16 @@ static func decide(ctx: Context) -> Decision:
 		if dist_to_ball < 0.15:
 			return Decision.new(Action.CHASE_BALL, ctx.ball_x, ctx.ball_y)
 
-	# Presser: the ONE goblin who breaks formation to close down the ball carrier
-	# Only press if the ball is inside (or near) my zone rect
+	# Presser: closes down the ball carrier. Always presses (zone expansion
+	# in STATE 6 and post-movement clamp handle the leash).
 	if role == TeamCoordinator.Role.PRESSER:
-		var r: Array = ctx.zone_rect
-		var margin: float = 0.05
-		var ball_in_zone: bool = (
-			ctx.ball_x >= float(r[0]) - margin and ctx.ball_x <= float(r[1]) + margin and
-			ctx.ball_y >= float(r[2]) - margin and ctx.ball_y <= float(r[3]) + margin
-		)
-		if ball_in_zone:
-			return _decide_presser(ctx, dist_to_ball)
-		# Ball outside my zone - hold position, let someone closer press
+		return _decide_presser(ctx, dist_to_ball)
+	if role == TeamCoordinator.Role.COVER_PRESSER:
+		return _decide_cover(ctx, dist_to_ball)
+	if role == TeamCoordinator.Role.MARKER:
+		return _decide_marker(ctx, dist_to_ball)
 
-	# Everyone else: hold formation. The 3 offsets in STATE 6 handle all positioning:
-	# - push up / drop back on possession changes
-	# - slide toward ball side
-	# - compress toward ball
+	# Everyone else: hold formation. STATE 6 handles zone positioning.
 	return Decision.new(Action.IDLE)
 
 # ── Keeper Logic ────────────────────────────────────────────────────────────
@@ -201,6 +200,7 @@ static func _decide_keeper(ctx: Context, dist_to_ball: float) -> Decision:
 
 static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 	## Zone-based decisions: what to do depends on WHERE you are on the pitch.
+	## Tendency modifies decision weights so each position plays differently.
 	var goal_x: float = 1.0 if ctx.is_home else 0.0
 	var dist_to_goal: float = absf(ctx.goblin_x - goal_x)
 	var fwd_dir: float = 1.0 if ctx.is_home else -1.0
@@ -208,6 +208,18 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 	var dribble_bias: float = _dribble_bias(ctx)
 	var hold_up_bias: float = _hold_up_bias(ctx)
 	var pass_risk_bias: float = _pass_risk_bias(ctx)
+
+	# Tendency modifiers
+	var tend: String = ctx.tendency_with_ball
+	if tend == "shoot_or_dribble":
+		shooting_bias += 0.15
+	elif tend == "hold_up_lay_off":
+		hold_up_bias += 0.50
+	elif tend == "dribble_shoot_flair":
+		dribble_bias += 0.20
+		shooting_bias += 0.10
+	elif tend == "shoot_from_distance":
+		shooting_bias += 0.20
 
 	# How much pressure? Count opponents nearby
 	var nearest_opp_dist: float = 999.0
@@ -218,6 +230,10 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 	var under_heavy_pressure: bool = nearest_opp_dist < 0.12
 	var under_pressure: bool = nearest_opp_dist < 0.18
 	var still_settling: bool = ctx.ball_control_time < ctx.settle_time
+	var in_own_third: bool = (ctx.is_home and ctx.goblin_x < 0.35) or (not ctx.is_home and ctx.goblin_x > 0.65)
+	var in_final_third: bool = dist_to_goal < 0.35
+	var stale_possession: bool = ctx.stale_possession_time >= 2.4 or (ctx.ball_control_time >= 1.8 and ctx.team_possession_time >= 2.0)
+	var very_stale: bool = ctx.stale_possession_time >= 4.8 or (ctx.ball_control_time >= 2.8 and ctx.team_possession_time >= 3.5)
 
 	var snap_shot_range: float = 0.22 + _sf(ctx.goblin, "shooting") * 0.015
 	var shot_window: float = 0.34 + _sf(ctx.goblin, "shooting") * 0.012
@@ -236,26 +252,99 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 	# Wide position? Cross into the box.
 	var is_wide: bool = absf(ctx.goblin_y - 0.5) > 0.25
 	var cross_chance: float = clampf(0.15 + _sf(ctx.goblin, "speed") * 0.04 + _sf(ctx.goblin, "chaos") * 0.03, 0.08, 0.82)
-	if _is_pos(ctx.goblin, ["winger", "wing_back"]):
-		cross_chance += 0.18
+	if tend == "cross_or_cut_inside":
+		cross_chance += 0.25  # wingers cross much more often when wide
+	elif tend == "overlap_cross":
+		cross_chance += 0.18  # wing-backs also cross
 	if is_wide and dist_to_goal < 0.40 and not still_settling and randf() < cross_chance:
 		return Decision.new(Action.CROSS, goal_x - (0.08 if ctx.is_home else -0.08), randf_range(0.35, 0.65))
+	# Winger tendency: cut inside when not wide enough to cross
+	if tend == "cross_or_cut_inside" and not is_wide and dist_to_goal < 0.45 and not still_settling:
+		# Dribble toward center (y = 0.5)
+		var cut_y: float = lerpf(ctx.goblin_y, 0.5, 0.4)
+		var cut_x: float = ctx.goblin_x + fwd_dir * 0.08
+		return Decision.new(Action.DRIBBLE, cut_x, cut_y)
 
-	# ── DRIBBLE-FIRST: carry the ball forward, pass only when needed ──
-	# Goblins are greedy little monsters. They want to run with the ball.
-	# Only pass when: pressured, in own third as a defender, or no space ahead.
+	# ── TENDENCY-DRIVEN DECISIONS ──
+	# Each position plays differently based on their tendency_with_ball.
 
+	# Space detection (tightened from 0.16 to 0.12, with lateral cone and count check)
 	var space_ahead: bool = true
+	var opp_ahead_count: int = 0
+	var space_radius: float = 0.12
+	if tend == "dribble_shoot_flair":
+		space_radius = 0.14  # trequartistas see more space
+	elif tend == "pass_forward" or tend == "simple_forward_pass":
+		space_radius = 0.10  # passers see less space (prefer to pass)
 	for opp in ctx.opponents:
 		var ox: float = _df(opp, "x")
 		var oy: float = _df(opp, "y")
 		var ahead: bool = (fwd_dir > 0 and ox > ctx.goblin_x) or (fwd_dir < 0 and ox < ctx.goblin_x)
-		if ahead and _dist(ctx.goblin_x, ctx.goblin_y, ox, oy) < 0.16:
-			space_ahead = false
-			break
+		if ahead:
+			var od: float = _dist(ctx.goblin_x, ctx.goblin_y, ox, oy)
+			if od < space_radius:
+				space_ahead = false
+				break
+			# Lateral cone check: opponent ahead AND close laterally
+			if od < 0.10 and absf(oy - ctx.goblin_y) < 0.08:
+				space_ahead = false
+				break
+			if od < 0.20:
+				opp_ahead_count += 1
+	if opp_ahead_count >= 2:
+		space_ahead = false
 
-	var in_own_third: bool = (ctx.is_home and ctx.goblin_x < 0.35) or (not ctx.is_home and ctx.goblin_x > 0.65)
-	var in_final_third: bool = dist_to_goal < 0.35
+	# Shadow striker: quick shot first time - reduce settle check, shoot immediately
+	if tend == "quick_shot_first_time" and dist_to_goal < shot_window and not under_heavy_pressure:
+		return Decision.new(Action.SHOOT, goal_x, randf_range(0.35, 0.65))
+
+	# Safety-first: anchors/enforcers/sweepers clear immediately in own half
+	if (tend == "simple_pass_clear" or tend == "clear_danger" or tend == "clear_to_safety") and in_own_third and not still_settling:
+		var fwd_t: Dictionary = _find_forward_teammate(ctx)
+		if not fwd_t.is_empty():
+			return Decision.new(Action.PASS, _df(fwd_t, "x"), _df(fwd_t, "y"), _dg(fwd_t))
+		return Decision.new(Action.CLEAR, ctx.goblin_x + fwd_dir * 0.25, 0.5)
+
+	# Pass-first: midfielders look to move the ball forward, not dribble
+	if (tend == "pass_forward" or tend == "simple_forward_pass") and not still_settling:
+		var fwd_p: Dictionary = _find_forward_teammate(ctx)
+		if not fwd_p.is_empty():
+			return Decision.new(Action.PASS, _df(fwd_p, "x"), _df(fwd_p, "y"), _dg(fwd_p))
+		# Fall through to dribble if no one forward
+
+	# Through-ball creative: playmakers look for runners specifically
+	if tend == "through_ball_creative" and not still_settling and not ctx.teammate_run_states.is_empty():
+		var best_runner: Dictionary = {}
+		var best_score: float = -999.0
+		for t in ctx.teammates:
+			if ctx.teammate_run_states.has(_dg(t)):
+				var score: float = 0.0
+				# Forward progress
+				var ahead_t: bool = (fwd_dir > 0 and _df(t, "x") > ctx.goblin_x) or (fwd_dir < 0 and _df(t, "x") < ctx.goblin_x)
+				if ahead_t:
+					score += 2.0
+				# Closeness to goal
+				score += (1.0 - absf(_df(t, "x") - goal_x)) * 1.5
+				if score > best_score:
+					best_score = score
+					best_runner = t
+		if not best_runner.is_empty():
+			return Decision.new(Action.PASS, _df(best_runner, "x"), _df(best_runner, "y"), _dg(best_runner))
+
+	# Drop-deep false nine: in final third, sometimes pass instead of shoot
+	if tend == "drop_deep_hold_create" and in_final_third and not under_heavy_pressure and randf() < 0.40:
+		var fwd_f9: Dictionary = _find_best_pass(ctx)
+		if not fwd_f9.is_empty():
+			return Decision.new(Action.PASS, _df(fwd_f9, "x"), _df(fwd_f9, "y"), _dg(fwd_f9))
+
+	# Striker tendency: force shots even when a pass might be smarter
+	if tend == "shoot_or_dribble" and dist_to_goal < shot_window and not still_settling:
+		if randf() < 0.40:  # 40% chance to just shoot regardless of pressure
+			return Decision.new(Action.SHOOT, goal_x, randf_range(0.35, 0.65))
+
+	# Tap-in poacher: in the box, always shoot
+	if tend == "tap_in_rebound" and dist_to_goal < snap_shot_range:
+		return Decision.new(Action.SHOOT, goal_x, randf_range(0.38, 0.62))
 
 	# Under heavy pressure: try to dribble out first, pass only if trapped
 	if under_heavy_pressure:
@@ -284,6 +373,21 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 		if not safe.is_empty():
 			return Decision.new(Action.PASS, _df(safe, "x"), _df(safe, "y"), _dg(safe))
 
+	# Long, low-progress possessions should resolve into an action instead of endless carrying.
+	if stale_possession and not still_settling:
+		if in_final_third and absf(ctx.goblin_y - 0.5) < 0.24 and not under_heavy_pressure:
+			var stale_shot_chance: float = clampf(0.24 + shooting_bias * 0.05, 0.18, 0.62)
+			if randf() < stale_shot_chance:
+				return Decision.new(Action.SHOOT, goal_x, randf_range(0.35, 0.65))
+		if is_wide and dist_to_goal < 0.44:
+			return Decision.new(Action.CROSS, goal_x - (0.08 if ctx.is_home else -0.08), randf_range(0.35, 0.65))
+		var forced_release: Dictionary = _find_best_pass(ctx)
+		if not forced_release.is_empty():
+			return Decision.new(Action.PASS, _df(forced_release, "x"), _df(forced_release, "y"), _dg(forced_release))
+		if very_stale and in_own_third:
+			return Decision.new(Action.CLEAR, ctx.goblin_x + fwd_dir * 0.24, lerpf(ctx.goblin_y, 0.5, 0.30))
+		space_ahead = false
+
 	# Space ahead? DRIBBLE. This is the default action for most goblins.
 	if space_ahead and not still_settling:
 		var dt3: Vector2 = _smart_dribble_target(ctx)
@@ -301,6 +405,13 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 		if not fwd6.is_empty():
 			return Decision.new(Action.PASS, _df(fwd6, "x"), _df(fwd6, "y"), _dg(fwd6))
 
+	if stale_possession and not still_settling:
+		var recycle: Dictionary = _find_nearest_teammate(ctx)
+		if not recycle.is_empty():
+			return Decision.new(Action.PASS, _df(recycle, "x"), _df(recycle, "y"), _dg(recycle))
+		if very_stale:
+			return Decision.new(Action.CLEAR, ctx.goblin_x + fwd_dir * 0.20, lerpf(ctx.goblin_y, 0.5, 0.25))
+
 	# Default: carry it forward anyway (goblin bravery)
 	var dribble_target: Vector2 = _smart_dribble_target(ctx)
 	return Decision.new(Action.DRIBBLE, dribble_target.x, dribble_target.y)
@@ -309,7 +420,10 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 
 static func _decide_presser(ctx: Context, dist_to_ball: float) -> Decision:
 	## The ONE goblin closing down the ball carrier. Tackles when close.
+	## Enforcers with hard_tackle_foul_risk tendency are more aggressive.
 	var tackle_window: float = 0.042 + _sf(ctx.goblin, "defense") * 0.002 + _sf(ctx.goblin, "strength") * 0.001
+	if ctx.tendency_opponent == "hard_tackle_foul_risk":
+		tackle_window += 0.005  # enforcers lunge from further away
 	if dist_to_ball < tackle_window:
 		return Decision.new(Action.TACKLE, ctx.ball_x, ctx.ball_y)
 	var close_down_range: float = 0.15 + _sf(ctx.goblin, "speed") * 0.010 + _sf(ctx.goblin, "defense") * 0.008
@@ -318,6 +432,37 @@ static func _decide_presser(ctx: Context, dist_to_ball: float) -> Decision:
 		var screen_y: float = lerpf(ctx.goblin_y, ctx.ball_y, 0.72)
 		return Decision.new(Action.MOVE_TO_POSITION, screen_x, screen_y)
 	return Decision.new(Action.CHASE_BALL, ctx.ball_x, ctx.ball_y)
+
+static func _decide_cover(ctx: Context, dist_to_ball: float) -> Decision:
+	## 2nd defender: position between carrier and own goal, cut passing lanes.
+	## If very close to ball, can tackle.
+	var goal_x: float = 0.0 if ctx.is_home else 1.0
+	var tackle_window: float = 0.042 + _sf(ctx.goblin, "defense") * 0.002
+	if dist_to_ball < tackle_window:
+		return Decision.new(Action.TACKLE, ctx.ball_x, ctx.ball_y)
+	# Position at ~35% between ball and own goal, drifting toward center
+	var cover_x: float = lerpf(ctx.ball_x, goal_x, 0.35)
+	var cover_y: float = lerpf(ctx.ball_y, 0.5, 0.25)  # drift toward center to cut lanes
+	return Decision.new(Action.MOVE_TO_POSITION, cover_x, cover_y)
+
+static func _decide_marker(ctx: Context, _dist_to_ball: float) -> Decision:
+	## Mark nearest opponent: stay goal-side within intercept distance.
+	## Loose man-marking - don't glue to opponent, just stay close and goal-side.
+	var nearest_opp := _find_nearest_opponent(ctx)
+	if nearest_opp.is_empty():
+		return Decision.new(Action.IDLE)
+	var opp_x: float = _df(nearest_opp, "x")
+	var opp_y: float = _df(nearest_opp, "y")
+	var goal_dir: float = -1.0 if ctx.is_home else 1.0
+	# Stay goal-side: offset toward own goal from opponent
+	var mark_x: float = opp_x + goal_dir * 0.04
+	var mark_y: float = lerpf(opp_y, 0.5, 0.10)  # slight central drift
+	# Can tackle if opponent has ball and very close
+	if _dg(nearest_opp) == ctx.ball_owner:
+		var d: float = _dist(ctx.goblin_x, ctx.goblin_y, opp_x, opp_y)
+		if d < 0.06:
+			return Decision.new(Action.TACKLE, ctx.ball_x, ctx.ball_y)
+	return Decision.new(Action.MOVE_TO_POSITION, mark_x, mark_y)
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -357,6 +502,19 @@ static func _smart_dribble_target(ctx: Context) -> Vector2:
 
 	target_y = clampf(target_y, 0.05, 0.95)
 	target_x = clampf(target_x, 0.02, 0.98)
+
+	# Pressure-aware retreat: if 2+ opponents closing in, pull target backward
+	# Makes carriers turn back or release the ball when surrounded
+	var close_opponents: int = 0
+	for opp2 in ctx.opponents:
+		var d2: float = _dist(ctx.goblin_x, ctx.goblin_y, _df(opp2, "x"), _df(opp2, "y"))
+		if d2 < 0.14:
+			close_opponents += 1
+	if close_opponents >= 2:
+		var retreat_dir: float = -1.0 if ctx.is_home else 1.0
+		target_x += retreat_dir * 0.04
+		target_x = clampf(target_x, 0.02, 0.98)
+
 	return Vector2(target_x, target_y)
 
 static func _dist(x1: float, y1: float, x2: float, y2: float) -> float:
@@ -387,11 +545,25 @@ static func _find_nearest_teammate(ctx: Context) -> Dictionary:
 	return best
 
 ## Find best pass target considering forward, wide, and safe options
+## Tendency-aware: creative passers attempt ambitious balls, safety passers play short
 static func _find_best_pass(ctx: Context) -> Dictionary:
 	var goal_x: float = 1.0 if ctx.is_home else 0.0
 	var best: Dictionary = {}
 	var best_score: float = -999.0
 	var pass_risk_bias: float = _pass_risk_bias(ctx)
+	var tend: String = ctx.tendency_with_ball
+
+	# Tendency-based weight modifiers
+	var forward_weight: float = 2.0
+	var distance_penalty_mult: float = 1.0
+	var backward_bonus: float = 0.0
+	if tend == "through_ball_creative":
+		forward_weight = 2.8  # creative passers prefer ambitious forward balls
+		distance_penalty_mult = 0.7  # and tolerate longer passes
+	elif tend == "simple_pass_clear" or tend == "clear_danger" or tend == "clear_to_safety":
+		distance_penalty_mult = 1.5  # safety passers penalize long passes heavily
+	elif tend == "hold_up_lay_off":
+		backward_bonus = 0.4  # target men prefer short lay-offs backward
 
 	for t in ctx.teammates:
 		var receiver: GoblinData = _dg(t)
@@ -406,15 +578,18 @@ static func _find_best_pass(ctx: Context) -> Dictionary:
 			continue
 
 		# Score components:
-		# 1. Forward progress toward goal (moderate weight - allow recycling)
+		# 1. Forward progress toward goal
 		var forward: float = 0.0
 		if ctx.is_home:
-			forward = (tx - ctx.goblin_x) * 2.0
+			forward = (tx - ctx.goblin_x) * forward_weight
 		else:
-			forward = (ctx.goblin_x - tx) * 2.0
-		# Mild penalty for backward passes (recycling is valid football)
+			forward = (ctx.goblin_x - tx) * forward_weight
+		# Backward passes: penalty for most, bonus for hold-up merchants
 		if forward < 0:
-			forward *= 1.2
+			if backward_bonus > 0:
+				forward = forward * 0.8 + backward_bonus  # target men: lay-offs are good
+			else:
+				forward *= 1.2
 
 		# 2. Width bonus - reward passes that switch play or go wide
 		var width_bonus: float = absf(ty - ctx.goblin_y) * 1.0
@@ -438,7 +613,12 @@ static func _find_best_pass(ctx: Context) -> Dictionary:
 			receiver_bonus += _sf(receiver, "strength") * 0.08
 		elif _is_pos(receiver, ["winger", "wing_back"]):
 			receiver_bonus += absf(ty - 0.5) * 0.5
-		var distance_penalty: float = maxf(0.0, d - 0.36) * clampf(1.45 - pass_risk_bias * 0.16, 0.55, 1.45)
+
+		# Runner bonus: balls go to teammates making runs
+		if ctx.teammate_run_states.has(receiver):
+			receiver_bonus += 0.8
+
+		var distance_penalty: float = maxf(0.0, d - 0.36) * clampf(1.45 - pass_risk_bias * 0.16, 0.55, 1.45) * distance_penalty_mult
 		var score: float = forward * (1.0 + pass_risk_bias * 0.10) + width_bonus + space + goal_proximity + receiver_bonus - distance_penalty
 		if score > best_score:
 			best_score = score

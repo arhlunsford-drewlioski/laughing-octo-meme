@@ -20,38 +20,39 @@ static func make_goblin(p_name: String, p_personality: String, p_position: Strin
 	return g
 
 static func full_roster() -> Array[GoblinData]:
-	## All 10 goblins available in the draft pool (2 per faction).
+	## Fallback 10-goblin roster for non-run matches (2 per faction).
+	## Run mode uses GoblinGenerator.generate_draft_pool() instead.
 	var F := FactionSystem.Faction
 	return [
 		#                         name, personality, position, SHO SPD DEF STR HP  CHA, faction
-		make_goblin("Gorwick the Relentless",
+		make_goblin("Gorwick Scholes",
 			"Never stops running. Never knows where he's going.",
 			"box_to_box", 3, 6, 4, 3, 5, 2, F.GILDED_CODEX),
-		make_goblin("Definitely Not Offside Dave",
+		make_goblin("Sniv Inzaghi",
 			"Standing exactly where the rules say he shouldn't be.",
 			"poacher", 7, 4, 1, 5, 3, 5, F.SCREAMING_TIDE),
-		make_goblin("Gribbix the Adequate",
+		make_goblin("Gribbix Xavi",
 			"Does everything at a solid 6 out of 10.",
 			"midfielder", 4, 4, 4, 4, 5, 3, F.GILDED_CODEX),
-		make_goblin("Skulkra Ironshins",
+		make_goblin("Skulkra Maldini",
 			"Got kicked so many times her shins became armor.",
 			"anchor", 2, 2, 7, 6, 7, 2, F.IRONCLAD_BASTIONS),
-		make_goblin("Whizzik Fastfoot",
+		make_goblin("Whizzik Mbappé",
 			"Believes speed solves every problem. It does not.",
 			"winger", 4, 8, 2, 2, 3, 5, F.MIDNIGHT_SKULK),
-		make_goblin("Nettlebrine the Immovable",
+		make_goblin("Blort Yashin",
 			"Claimed the goal as personal territory. Will fight the ball.",
 			"keeper", 1, 2, 7, 8, 5, 2, F.IRONCLAD_BASTIONS),
-		make_goblin("Blix the Unhinged",
+		make_goblin("Blix Cantona",
 			"Celebrates before the ball goes in. Sometimes it does.",
 			"trequartista", 7, 6, 1, 2, 3, 8, F.THUNDERING_MAW),
-		make_goblin("Old Mugwort",
+		make_goblin("Mugwort Pirlo",
 			"Has been playing since before the rules were invented.",
 			"playmaker", 4, 5, 3, 3, 4, 6, F.MIDNIGHT_SKULK),
-		make_goblin("Pibble Twoboots",
+		make_goblin("Pibble Puyol",
 			"Wears two boots on one foot. Claims it's tactical.",
 			"sweeper", 2, 4, 6, 5, 6, 3, F.SCREAMING_TIDE),
-		make_goblin("Snaggleclaw the Lucky",
+		make_goblin("Snaggleclaw Muller",
 			"Trips into goals. Has never scored on purpose.",
 			"shadow_striker", 6, 4, 2, 4, 5, 7, F.THUNDERING_MAW),
 	]
@@ -163,6 +164,71 @@ static func generate_opponent_roster(faction: int) -> Array[GoblinData]:
 			t[1], t[2], t[3], t[4], t[5], t[6], faction))
 	return roster
 
+# ── Recruitment Pool ──────────────────────────────────────────────────────────
+
+const _RECRUIT_FIRST_NAMES: Array = [
+	"Grot", "Sniv", "Murg", "Blat", "Nix", "Wort", "Drib", "Fug",
+	"Skab", "Gunk", "Plop", "Crud", "Squit", "Rak", "Zib", "Drek",
+]
+
+const _RECRUIT_LAST_NAMES: Array = [
+	"Lingard", "Mustafi", "Bendtner", "Heskey", "Bebe",
+	"Altidore", "Balotelli", "Quaresma", "Taarabt", "Adebayor",
+	"Chamakh", "Djemba-Djemba", "Kerlon", "Pennant", "Obertan",
+]
+
+const _RECRUIT_PERSONALITIES: Array = [
+	"Showed up uninvited. Stayed.",
+	"Technically knows what a ball is.",
+	"Was watching from the stands. Got drafted.",
+	"Claims to have played before. Evidence suggests otherwise.",
+	"Enthusiastic. That's about it.",
+	"Found wandering near the pitch.",
+	"His mother says he's very talented.",
+	"Free agent for a reason.",
+	"Will play for food.",
+	"Previous team 'mysteriously disbanded.'",
+]
+
+const _RECRUIT_POSITIONS: Array = [
+	"striker", "winger", "midfielder", "keeper", "enforcer", "sweeper",
+	"box_to_box", "target_man", "poacher", "shadow_striker",
+]
+
+static func generate_recruit() -> GoblinData:
+	## Generate a random recruit goblin. Stats are 2-5 range (weaker than starters).
+	var first: String = _RECRUIT_FIRST_NAMES[randi() % _RECRUIT_FIRST_NAMES.size()]
+	var last: String = _RECRUIT_LAST_NAMES[randi() % _RECRUIT_LAST_NAMES.size()]
+	var gob_name := first + " " + last
+	var personality: String = _RECRUIT_PERSONALITIES[randi() % _RECRUIT_PERSONALITIES.size()]
+	var pos: String = _RECRUIT_POSITIONS[randi() % _RECRUIT_POSITIONS.size()]
+	var faction: int = (randi() % 5) + 1  # Random faction 1-5
+
+	# Base stats 2-4, with +1-2 bonus to primary stats
+	var primary := PositionDatabase.get_primary_stats(pos)
+	var stats := {}
+	for stat_name in GoblinData.STAT_KEYS:
+		stats[stat_name] = randi_range(2, 4)
+		if stat_name in primary:
+			stats[stat_name] += randi_range(1, 2)
+		stats[stat_name] = mini(stats[stat_name], 7)
+
+	return make_goblin(gob_name, personality, pos,
+		stats["shooting"], stats["speed"], stats["defense"],
+		stats["strength"], stats["health"], stats["chaos"], faction)
+
+static func generate_recruits(count: int) -> Array[GoblinData]:
+	var recruits: Array[GoblinData] = []
+	var used_names: Array[String] = []
+	for i in count:
+		var g := generate_recruit()
+		# Avoid duplicate names
+		while g.goblin_name in used_names:
+			g = generate_recruit()
+		used_names.append(g.goblin_name)
+		recruits.append(g)
+	return recruits
+
 static func build_default_formation(roster: Array[GoblinData]) -> Formation:
 	## Assigns 6 goblins to formation based on their position's natural zone.
 	## Falls back to best-fit if zones overflow.
@@ -189,5 +255,34 @@ static func build_default_formation(roster: Array[GoblinData]) -> Formation:
 		for zone in ["midfield", "defense", "attack"]:
 			if formation.assign_goblin_to_zone(g, zone):
 				break
+
+	# If no keeper was selected, force the best strength+defense goblin into goal
+	if formation.goal.is_empty():
+		var best_keeper: GoblinData = null
+		var best_score: int = -1
+		for g in formation.get_all_outfield():
+			var keeper_score: int = g.get_stat("strength") + g.get_stat("defense")
+			if keeper_score > best_score:
+				best_score = keeper_score
+				best_keeper = g
+		if best_keeper:
+			formation.remove_goblin(best_keeper)
+			formation.assign_goblin_to_zone(best_keeper, "goal")
+
+	# If any outfield zone is empty, redistribute from overstacked zones
+	for zone in ["attack", "midfield", "defense"]:
+		if formation.get_zone(zone).is_empty():
+			# Steal from the largest zone
+			var largest_zone := ""
+			var largest_size := 0
+			for z in ["attack", "midfield", "defense"]:
+				if z != zone and formation.get_zone(z).size() > largest_size:
+					largest_size = formation.get_zone(z).size()
+					largest_zone = z
+			if largest_zone != "" and largest_size > 1:
+				var donor_arr := formation.get_zone(largest_zone)
+				var stolen: GoblinData = donor_arr[donor_arr.size() - 1]
+				formation.remove_goblin(stolen)
+				formation.assign_goblin_to_zone(stolen, zone)
 
 	return formation

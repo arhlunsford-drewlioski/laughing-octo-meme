@@ -16,7 +16,7 @@ var goblin_panels: Dictionary = {}
 @onready var faction_label: Label = %FactionLabel
 
 func _ready() -> void:
-	full_roster = GoblinDatabase.full_roster()
+	full_roster = GoblinGenerator.generate_draft_pool(10)
 	start_btn.pressed.connect(_on_start_match)
 	start_btn.disabled = true
 
@@ -157,5 +157,6 @@ func _update_count() -> void:
 
 func _on_start_match() -> void:
 	GameManager.selected_roster = selected.duplicate()
-	RunManager.start_tournament(selected.duplicate())
+	# The run roster must include the whole drafted squad, not just the opening XI.
+	RunManager.start_tournament(full_roster.duplicate())
 	get_tree().change_scene_to_file("res://scenes/screens/tournament_hub.tscn")

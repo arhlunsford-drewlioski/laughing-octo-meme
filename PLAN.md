@@ -167,96 +167,104 @@ Key files:
 
 ### Current Flow
 ```
-Tournament Hub → match.tscn (OLD engine) → shop.tscn → Tournament Hub
+Tournament Hub → Team Select (pick 6) → match_sim_viewer.tscn → shop.tscn → Tournament Hub
 ```
 
-### Gold Economy (current values - too low)
-Win=5g, Draw=2g, Loss=1g, +1g/goal (cap 3)
+### Gold Economy
+Win=100g, Draw=50g, Loss=25g, +10g/goal (cap 5)
 
 ---
 
 ## BUILD ORDER
 
-### Phase 1: Wire New Match Engine into Run Loop
+### Phase 1: Wire New Match Engine into Run Loop [DONE]
 **What**: Replace `match.tscn` with `match_sim_viewer.tscn` in the tournament flow. Pass the player's formation and opponent's formation from RunManager into the sim viewer. Record results back.
 
-**Changes**:
-- `tournament_hub.gd`: Launch `match_sim_viewer.tscn` instead of `match.tscn`
-- `match_sim_viewer.gd`: Accept formations from RunManager instead of hardcoded rosters. Call `RunManager.record_match_result()` on match end. Transition to shop/reward.
-- Update gold economy to new values (Win=100g, Draw=50g, Loss=25g)
+**Completed**:
+- `tournament_hub.gd`: Launches `team_select.tscn` (pick 6 from alive roster)
+- `team_select.gd`: New screen - shows all alive goblins with stats/injuries, pick 6, sets `GameManager.selected_roster`
+- `match_sim_viewer.gd`: Reads formations from RunManager. Records score + injuries/deaths via `RunManager.record_match_result()`. Transitions to shop.
+- `run_manager.gd`: `record_match_result()` now tracks injuries and deaths in match history. Added `get_player_roster()` and `get_alive_roster()` helpers.
+- Gold economy updated (Win=100g, Draw=50g, Loss=25g, +10g/goal cap 5)
 
 **Milestone**: Play a tournament using the new match engine, see results persist.
 
-### Phase 2: Roster Management (Fatigue + Rotation)
-**What**: Add fatigue system and a team selection screen between matches.
+### Phase 2: Roster Management (Fatigue + Rotation) [DONE]
+**What**: Add fatigue system to the existing team selection screen.
 
-**Changes**:
-- `goblin_data.gd`: Add fatigue (0-10 scale). Playing a match = +3 fatigue. Resting = -fatigue. High fatigue = -1 speed, -1 defense.
-- New `scenes/screens/team_select.gd`: Pick 6 from your 14. Show health/fatigue/injury status. Drag to formation slots.
-- Flow becomes: Tournament Hub → Team Select → Match → Shop → Tournament Hub
+**Completed**:
+- `goblin_data.gd`: Fatigue 0-10 scale. +3 per match played, -2 per match rested. At fatigue >= 5: -1 speed, -1 defense (applied via `get_stat()`).
+- `run_manager.gd`: `record_match_result()` applies fatigue to played goblins and rests bench goblins.
+- `team_select.gd`: Shows fatigue bar on cards, orange "TIRED" warning at threshold, stats shown in orange when penalized.
 
-**Milestone**: Choose your squad, see fatigue build up, rotate players.
+**Milestone**: See fatigue build up across matches, rotate players to manage it.
 
-### Phase 3: Injury Persistence + Death + Healing
+### Phase 3: Injury Persistence + Death + Healing [DONE]
 **What**: Injuries from matches carry over. Dead goblins removed from roster permanently. Shop offers healing.
 
-**Changes**:
-- `run_manager.gd`: Track full 14-goblin roster with persistent injury state across matches
-- `shop.gd`: Add healing tab (minor heal 30g, major heal 80g)
-- `match_sim_viewer.gd`: After match, apply injuries/deaths to RunManager roster
-- Death removes goblin from roster array permanently
+**Completed**:
+- `run_manager.gd`: Dead goblins pruned from roster after `record_match_result()`. Added `HEAL_MINOR_COST=30`, `HEAL_MAJOR_COST=80`, `MIN_ROSTER_SIZE=6`. `is_eliminated()` checks alive roster < 6.
+- `shop.gd`: Healing tab shows injured goblins with severity, stat penalties, and HEAL button. Auto-hides when nobody is injured.
+- Death removes goblin from roster array permanently. Roster < 6 alive triggers game over via `is_eliminated()`.
 
 **Milestone**: Lose goblins across a run, feel the roster pressure, spend gold on healing.
 
-### Phase 4: Recruitment + XP/Leveling
+### Phase 4: Recruitment + XP/Leveling [DONE]
 **What**: Buy replacement goblins when roster shrinks. Goblins earn XP from match performance.
 
-**Changes**:
-- `shop.gd`: Add recruitment tab (random goblins for 60-120g, worse than starters)
-- `goblin_data.gd`: Add XP, level, stat growth on level-up (+1 to a stat)
-- `match_sim_viewer.gd`: Award XP based on goals, assists, tackles, take-ons
-- Show XP gains on reward/post-match screen
+**Completed**:
+- `goblin_data.gd`: XP/level system. XP needed = 100 * level. Level up gives +1 to a stat (weighted toward position primary stats).
+- `match_sim_viewer.gd`: Tracks per-goblin performance (goals, assists, tackles, take_ons, interceptions, saves). Awards XP post-match (10 base + 30/goal + 20/assist + 5/tackle + 5/take_on + 10/interception + 10/save). Logs XP gains and level-ups.
+- `goblin_database.gd`: `generate_recruit()` creates random goblins with stats 2-5 (weaker than starters), fun names/personalities.
+- `shop.gd`: Recruitment tab shows 3 random recruits (60-120g each) with stats, position, faction, personality. Purchased recruits added to roster.
+- `team_select.gd`: Shows level on goblin cards when level > 1.
 
 **Milestone**: Full roguelike loop - goblins die, you recruit replacements, survivors level up.
 
-### Phase 5: Items
+### Phase 5: Items [DONE]
 **What**: Equippable items (1 slot per goblin) that modify stats or give special effects.
 
-**Changes**:
-- `goblin_data.gd`: Equipment slot already exists, wire it to stat modifiers
-- `shop.gd`: Add items tab (30-70g)
-- `team_select.gd`: Show equipped items, allow equip/swap
+**Completed**:
+- `resources/item_data.gd`: ItemData resource with name, description, rarity (Common/Uncommon/Rare), stat_bonuses dictionary, special_effect. Pricing by rarity (30g/50g/70g).
+- `scripts/item_database.gd`: 24 items across 3 rarity tiers (8 each). `generate_shop_items()` with weighted rarity rolls (55% common, 30% uncommon, 15% rare).
+- `goblin_data.gd`: `get_stat()` now includes item bonuses via `_get_item_bonus()`. Added `equip_item()`, `unequip_item()`, `has_item()` helpers.
+- `shop.gd` + `shop.tscn`: Equipment section shows 3 random items per shop visit. Buy flow: purchase item, then pick a goblin to equip it on (replaces existing item).
+- `team_select.gd`: Shows equipped item name + stat bonuses on goblin cards with rarity-colored text.
 
 **Milestone**: Gear up your goblins, make strategic equipment choices.
 
-### Phase 6: Spell Deck System
+### Phase 6: Spell Deck System [DONE]
 **What**: Replace hardcoded spell buttons with proper mana + hand + deck system.
 
-**Changes**:
-- New `scripts/spell_data.gd`: Resource with name, mana cost, effect, target type
-- New `scripts/spell_system.gd`: Deck (8-10 cards), hand draw (5 per match), mana pool (5, no regen)
-- `match_sim_viewer.gd`: Replace 3 buttons with spell hand UI, mana bar, click-to-cast
-- 10 spell cards from PLAN (Fireball, Haste, Dark Surge, Shadow Wall, Hex, Blood Pact, Necromancy, Frenzy, Multiball, Curse of the Post)
+**Completed**:
+- `resources/spell_data.gd`: Already existed with name, mana cost, stat modifiers, target type, special effect, rarity, shop cost.
+- `scripts/spell_database.gd`: All 10 spell definitions (Fireball 3, Haste 1, Dark Surge 1, Shadow Wall 2, Hex 2, Blood Pact 3, Necromancy 4, Frenzy 3, Multiball 2, Curse of the Post 1). Starter deck of 5 spells. Shop pool for deck building.
+- `scripts/spell_system.gd`: Deck management, random hand draw (5 per match), mana pool (5, no regen). Blood Pact post-match injury tracking. Curse charge tracking.
+- `scripts/match_simulation.gd`: Generic buff system (`_active_buffs` with timed expiry). New cast methods: `cast_dark_surge()`, `cast_shadow_wall()`, `cast_hex()`, `cast_blood_pact()`, `cast_frenzy()`, `cast_curse_of_post()`. Curse of the Post hooks into shot resolution to auto-miss.
+- `match_sim_viewer.gd`: Replaced 3 hardcoded spell buttons with dynamic spell hand UI. Mana crystal display. Click-to-cast with targeting modes (pitch click for Fireball, ally click for Dark Surge/Blood Pact, enemy click for Hex). ESC/right-click to cancel targeting.
+- `run_manager.gd`: `run_spell_deck` persists across matches. Initialized with starter deck on tournament start.
 
 **Milestone**: Cast spells from a hand during matches, mana matters.
 
-### Phase 7: Deck Building
+### Phase 7: Deck Building [DONE]
 **What**: Buy spell cards in the shop to grow your deck.
 
-**Changes**:
-- `shop.gd`: Spell card tab (2-3 offered per match, 20-60g)
-- `run_manager.gd`: Track spell deck across run
-- Cards persist (not consumed), deck grows, hand is random 5
+**Completed**:
+- `shop.gd` + `shop.tscn`: Spells section shows 3 random spell cards from the shop pool each visit. Displays name, mana cost, rarity, description, stat modifiers, and price (20-60g). Shows current deck size. Rarity-colored borders (Common blue, Uncommon green, Rare purple).
+- `run_manager.gd`: `add_spell_card()` and `remove_spell_card()` helpers. `run_spell_deck` persists across matches, initialized with starter deck.
+- `scripts/spell_database.gd`: `shop_pool()` returns purchasable spells (Hex, Blood Pact, Necromancy, Frenzy, Curse of the Post, plus duplicate copies of Dark Surge, Shadow Wall, Haste).
+- Cards persist (not consumed), deck grows, hand is random 5 drawn per match.
 
 **Milestone**: Build a spell collection across a run, strategy in lean vs wide decks.
 
-### Phase 8: Content Generation
+### Phase 8: Content Generation [DONE]
 **What**: Procedural goblins and opponent scaling for run variety.
 
-**Changes**:
-- New `scripts/goblin_generator.gd`: Random names, stat distributions, personality
-- Opponent difficulty scales with tournament stage (group = easy, final = hard)
-- Starting roster randomized per run
+**Completed**:
+- `scripts/goblin_generator.gd`: Procedural goblin generation. Names = goblin first name + famous footballer surname (Thordak Materazzi, Skullcrusher Smith-Rowe, etc.). 60 first names, 60 footballer surnames, 30 personalities. Positionally balanced draft pool generation (guaranteed 2 ATK, 2 MID, 2 DEF, 1 GK). Difficulty-scaled opponent generation with stat ranges that increase with tournament progression.
+- `scripts/tournament/team_generator.gd`: Difficulty now scales with team index (0.0 to 1.0 range with variance). Early teams are weaker (stats 2-6), late teams are stronger (stats 4-9 with primary stat bonuses).
+- `scenes/draft/draft.gd`: Draft pool now uses `GoblinGenerator.generate_draft_pool(10)` instead of fixed roster. Every run starts with different goblins.
+- `scripts/goblin_database.gd`: Fixed roster and recruit names updated to footballer-surname style. Recruits use cult-hero/meme footballer names (Grot Lingard, Sniv Bendtner, etc.).
 
 **Milestone**: Every run feels different.
 

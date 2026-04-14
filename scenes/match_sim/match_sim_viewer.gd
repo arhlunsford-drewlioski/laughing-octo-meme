@@ -1,6 +1,8 @@
 extends Control
 ## Watches a MatchSimulation play out visually on the AnimatedPitch.
 
+const MatchDirectorClass = preload("res://scripts/match_director.gd")
+
 @onready var animated_pitch: Control = %AnimatedPitch
 @onready var score_label: Label = %ScoreLabel
 @onready var clock_label: Label = %ClockLabel
@@ -11,23 +13,40 @@ extends Control
 var sim: MatchSimulation
 var home_formation: Formation
 var away_formation: Formation
+var _director: RefCounted
+var _director_phase_label: String = ""
 
 var _tick_accumulator: float = 0.0
 var _speed_multiplier: float = 0.6
 const SPEED_OPTIONS := [0.6, 1.0, 1.5, 2.0, 4.0]
 var _speed_index: int = 0
 
-# Spell targeting
-var _fireball_targeting: bool = false
+# Spell system
+var _spell_system: SpellSystem
+var _spell_buttons: Array[Button] = []
+var _mana_label: RichTextLabel
+var _spell_container: HBoxContainer
+var _targeting_spell_index: int = -1  # Which hand index is being targeted
+var _targeting_mode: String = ""       # "pitch", "ally", "enemy"
 var _paused: bool = false
-var _fireball_btn: Button
-var _haste_btn: Button
-var _multiball_btn: Button
 
 # Possession tracking
 var _home_possession_ticks: int = 0
 var _away_possession_ticks: int = 0
 var _last_ball_owner_team: String = ""
+
+# Performance tracking for XP (keyed by goblin name)
+var _perf: Dictionary = {}
+var _last_passer_to: Dictionary = {}
+
+# XP awards
+const XP_PLAYED: int = 10
+const XP_GOAL: int = 30
+const XP_ASSIST: int = 20
+const XP_TACKLE: int = 5
+const XP_TAKE_ON: int = 5
+const XP_INTERCEPTION: int = 10
+const XP_SAVE: int = 10
 
 func _ready() -> void:
 	back_btn.pressed.connect(_on_back_pressed)
@@ -39,35 +58,24 @@ func _ready() -> void:
 	clock_label.add_theme_color_override("font_color", UITheme.CREAM)
 	speed_btn.text = _speed_text()
 
-	# Spell buttons
+	# Build spell UI in the bottom bar
 	var bottom_bar: HBoxContainer = %EventLog.get_parent()
 
-	_fireball_btn = Button.new()
-	_fireball_btn.text = "FIREBALL"
-	_fireball_btn.custom_minimum_size = Vector2(90, 0)
-	UITheme.style_button(_fireball_btn, false)
-	_fireball_btn.add_theme_color_override("font_color", Color(1.0, 0.4, 0.1))
-	_fireball_btn.pressed.connect(_on_fireball_pressed)
-	bottom_bar.add_child(_fireball_btn)
-	bottom_bar.move_child(_fireball_btn, 0)
+	# Mana display
+	_mana_label = RichTextLabel.new()
+	_mana_label.bbcode_enabled = true
+	_mana_label.fit_content = true
+	_mana_label.custom_minimum_size = Vector2(40, 0)
+	_mana_label.scroll_active = false
+	_mana_label.add_theme_font_size_override("normal_font_size", 18)
+	bottom_bar.add_child(_mana_label)
+	bottom_bar.move_child(_mana_label, 0)
 
-	_haste_btn = Button.new()
-	_haste_btn.text = "HASTE"
-	_haste_btn.custom_minimum_size = Vector2(70, 0)
-	UITheme.style_button(_haste_btn, false)
-	_haste_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
-	_haste_btn.pressed.connect(_on_haste_pressed)
-	bottom_bar.add_child(_haste_btn)
-	bottom_bar.move_child(_haste_btn, 1)
-
-	_multiball_btn = Button.new()
-	_multiball_btn.text = "MULTIBALL"
-	_multiball_btn.custom_minimum_size = Vector2(90, 0)
-	UITheme.style_button(_multiball_btn, false)
-	_multiball_btn.add_theme_color_override("font_color", Color(1.0, 0.8, 0.2))
-	_multiball_btn.pressed.connect(_on_multiball_pressed)
-	bottom_bar.add_child(_multiball_btn)
-	bottom_bar.move_child(_multiball_btn, 2)
+	# Spell hand container
+	_spell_container = HBoxContainer.new()
+	_spell_container.add_theme_constant_override("separation", 4)
+	bottom_bar.add_child(_spell_container)
+	bottom_bar.move_child(_spell_container, 1)
 
 	animated_pitch.pitch_clicked.connect(_on_pitch_clicked)
 
@@ -87,11 +95,29 @@ func _setup_and_start() -> void:
 	home_formation = GoblinDatabase.build_default_formation(player_roster)
 	away_formation = GoblinDatabase.build_default_formation(opponent_roster)
 
+	# Init performance tracking for player goblins
+	for g in player_roster:
+		_perf[g.goblin_name] = {"goals": 0, "assists": 0, "tackles": 0, "take_ons": 0, "interceptions": 0, "saves": 0}
+
+	# Init spell system
+	_spell_system = SpellSystem.new()
+	var spell_deck: Array[SpellData]
+	if RunManager.run_active and RunManager.run_spell_deck.size() > 0:
+		spell_deck = RunManager.run_spell_deck
+	else:
+		spell_deck = SpellDatabase.starter_deck()
+	_spell_system.setup(spell_deck)
+	_build_spell_hand_ui()
+	_refresh_mana()
+
 	await animated_pitch.setup(home_formation, away_formation)
 
 	sim = MatchSimulation.new()
+	_director = MatchDirectorClass.new()
+	_director.reset()
 	var snapshot := sim.start_match(home_formation, away_formation)
 	animated_pitch.apply_snapshot(snapshot)
+	_apply_director(snapshot)
 	_update_ui(snapshot)
 
 	if RunManager.run_active:
@@ -113,6 +139,7 @@ func _process(delta: float) -> void:
 		_tick_accumulator -= tick_interval
 		var snapshot := sim.tick()
 		animated_pitch.apply_snapshot(snapshot)
+		_apply_director(snapshot)
 		_process_events(snapshot)
 		_update_ui(snapshot)
 		_check_halftime(snapshot)
@@ -121,9 +148,250 @@ func _process(delta: float) -> void:
 			_on_match_over(snapshot)
 			break
 
+# ── Spell Hand UI ──────────────────────────────────────────────────────────
+
+func _build_spell_hand_ui() -> void:
+	for child in _spell_container.get_children():
+		child.queue_free()
+	_spell_buttons.clear()
+
+	for i in range(_spell_system.hand.size()):
+		var spell: SpellData = _spell_system.hand[i]
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(0, 0)
+		btn.add_theme_font_size_override("font_size", 11)
+		_update_spell_button(btn, spell, i)
+		btn.pressed.connect(_on_spell_pressed.bind(i))
+		_spell_container.add_child(btn)
+		_spell_buttons.append(btn)
+
+func _update_spell_button(btn: Button, spell: SpellData, index: int) -> void:
+	btn.text = "%s (%d)" % [spell.spell_name, spell.mana_cost]
+	var can_afford := _spell_system.can_cast(index)
+	btn.disabled = not can_afford
+	var spell_color := _get_spell_color(spell)
+	UITheme.style_button(btn, can_afford)
+	btn.add_theme_color_override("font_color", spell_color)
+	btn.add_theme_color_override("font_hover_color", spell_color.lightened(0.3))
+
+func _refresh_spell_buttons() -> void:
+	for i in range(_spell_buttons.size()):
+		if i < _spell_system.hand.size():
+			_update_spell_button(_spell_buttons[i], _spell_system.hand[i], i)
+
+func _refresh_mana() -> void:
+	_mana_label.text = ""
+	for i in SpellSystem.STARTING_MANA:
+		if i < _spell_system.mana:
+			_mana_label.append_text("[color=#4d99ff]◆[/color]")
+		else:
+			_mana_label.append_text("[color=#333344]◇[/color]")
+
+func _get_spell_color(spell: SpellData) -> Color:
+	match spell.special_effect:
+		"fireball":
+			return Color(1.0, 0.4, 0.1)
+		"haste":
+			return Color(0.3, 1.0, 0.4)
+		"multiball":
+			return Color(1.0, 0.8, 0.2)
+		"shadow_wall":
+			return Color(0.4, 0.5, 0.9)
+		"hex":
+			return Color(0.7, 0.2, 0.8)
+		"blood_pact":
+			return Color(0.9, 0.1, 0.2)
+		"frenzy":
+			return Color(1.0, 0.3, 0.3)
+		"curse_of_post":
+			return Color(0.6, 0.4, 0.7)
+		"necromancy":
+			return Color(0.2, 0.9, 0.5)
+		_:
+			# Dark Surge or others without special_effect
+			if spell.stat_modifiers.has("shooting") and spell.stat_modifiers["shooting"] > 0:
+				return Color(1.0, 0.6, 0.1)
+			return UITheme.CREAM
+
+func _on_spell_pressed(hand_index: int) -> void:
+	if hand_index < 0 or hand_index >= _spell_system.hand.size():
+		return
+	if not _spell_system.can_cast(hand_index):
+		return
+
+	# If already targeting, cancel
+	if _targeting_spell_index >= 0:
+		_cancel_targeting()
+
+	var spell: SpellData = _spell_system.hand[hand_index]
+
+	# Determine targeting mode based on spell
+	match spell.special_effect:
+		"fireball":
+			_start_targeting(hand_index, "pitch")
+		"haste", "shadow_wall", "frenzy", "multiball", "curse_of_post":
+			# No targeting needed, cast immediately
+			_cast_spell_immediate(hand_index)
+		"necromancy":
+			# Special: no targeting in sim, just cast
+			_cast_spell_immediate(hand_index)
+		"hex":
+			_start_targeting(hand_index, "enemy")
+		"blood_pact":
+			_start_targeting(hand_index, "ally")
+		_:
+			# Default: check target type
+			match spell.target_type:
+				SpellData.TargetType.ALLY:
+					_start_targeting(hand_index, "ally")
+				SpellData.TargetType.ENEMY:
+					_start_targeting(hand_index, "enemy")
+				_:
+					_cast_spell_immediate(hand_index)
+
+func _start_targeting(hand_index: int, mode: String) -> void:
+	_targeting_spell_index = hand_index
+	_targeting_mode = mode
+	_paused = true
+	var spell: SpellData = _spell_system.hand[hand_index]
+
+	match mode:
+		"pitch":
+			animated_pitch.set_fireball_targeting(true)
+			_log("[color=#ff6600]Click on the pitch to cast %s![/color]" % spell.spell_name)
+		"ally":
+			_log("[color=#33ff55]Click one of your goblins to cast %s![/color]" % spell.spell_name)
+		"enemy":
+			_log("[color=#cc33ff]Click an enemy goblin to cast %s![/color]" % spell.spell_name)
+
+	# Update button to show CANCEL
+	if hand_index < _spell_buttons.size():
+		_spell_buttons[hand_index].text = "CANCEL"
+
+func _cancel_targeting() -> void:
+	if _targeting_mode == "pitch":
+		animated_pitch.set_fireball_targeting(false)
+	_targeting_spell_index = -1
+	_targeting_mode = ""
+	_paused = false
+	_refresh_spell_buttons()
+
+func _cast_spell_immediate(hand_index: int) -> void:
+	var spell := _spell_system.cast(hand_index)
+	if spell == null:
+		return
+
+	match spell.special_effect:
+		"haste":
+			sim.cast_haste(0)
+		"shadow_wall":
+			sim.cast_shadow_wall(0)
+		"multiball":
+			sim.cast_multiball(0)
+		"frenzy":
+			sim.cast_frenzy(0)
+		"curse_of_post":
+			sim.cast_curse_of_post(0)
+		"necromancy":
+			_log("[color=#22dd66][b]NECROMANCY! The dark arts stir...[/b][/color]")
+			# Necromancy: not yet implemented in sim (would need dead goblin revival)
+			# For now, log it as a placeholder
+		_:
+			# Dark Surge with no target = boost random ally
+			if spell.target_type == SpellData.TargetType.ALL_ALLIES:
+				sim.cast_shadow_wall(0)  # fallback
+
+	var snapshot := sim._build_snapshot()
+	_apply_director(snapshot)
+	_process_events(snapshot)
+	_post_cast_cleanup(hand_index)
+
+func _cast_spell_targeted(hand_index: int, target: GoblinData) -> void:
+	var spell := _spell_system.cast(hand_index)
+	if spell == null:
+		return
+
+	match spell.special_effect:
+		"hex":
+			sim.cast_hex(0, target)
+		"blood_pact":
+			sim.cast_blood_pact(0, target)
+			_spell_system.blood_pact_targets.append(target)
+		_:
+			# Dark Surge (stat modifier on ally)
+			if spell.stat_modifiers.has("shooting") and spell.target_type == SpellData.TargetType.ALLY:
+				sim.cast_dark_surge(0, target)
+
+	var snapshot := sim._build_snapshot()
+	_apply_director(snapshot)
+	_process_events(snapshot)
+	_post_cast_cleanup(hand_index)
+
+func _post_cast_cleanup(_hand_index: int) -> void:
+	# Rebuild spell buttons since hand changed
+	_build_spell_hand_ui()
+	_refresh_mana()
+
+func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
+	if _targeting_spell_index < 0:
+		return
+
+	if _targeting_mode == "pitch":
+		# Fireball targeting
+		var spell := _spell_system.cast(_targeting_spell_index)
+		if spell:
+			sim.cast_fireball(0, pitch_x, pitch_y)
+			var snapshot := sim._build_snapshot()
+			_apply_director(snapshot)
+			_process_events(snapshot)
+		animated_pitch.set_fireball_targeting(false)
+		_targeting_spell_index = -1
+		_targeting_mode = ""
+		_paused = false
+		_build_spell_hand_ui()
+		_refresh_mana()
+	elif _targeting_mode == "ally" or _targeting_mode == "enemy":
+		# Find nearest goblin to click
+		var target := _find_nearest_goblin(pitch_x, pitch_y, _targeting_mode == "ally")
+		if target:
+			var idx := _targeting_spell_index
+			_targeting_spell_index = -1
+			_targeting_mode = ""
+			_paused = false
+			_cast_spell_targeted(idx, target)
+		else:
+			_log("[color=#aaaaaa]No valid target there. Click a goblin or press ESC to cancel.[/color]")
+
+func _find_nearest_goblin(px: float, py: float, ally: bool) -> GoblinData:
+	var formation: Formation = home_formation if ally else away_formation
+	var best: GoblinData = null
+	var best_dist: float = 0.08  # Max click distance
+	for goblin in formation.get_all():
+		if not sim.goblin_states.has(goblin):
+			continue
+		var gs: Dictionary = sim.goblin_states[goblin]
+		var gx: float = float(gs["x"])
+		var gy: float = float(gs["y"])
+		var d: float = sqrt((gx - px) * (gx - px) + (gy - py) * (gy - py))
+		if d < best_dist:
+			best_dist = d
+			best = goblin
+	return best
+
+func _apply_director(snapshot: Dictionary) -> void:
+	if _director == null:
+		return
+	var direction: Dictionary = _director.update(snapshot)
+	_director_phase_label = str(direction.get("phase_label", ""))
+	for line in direction.get("log_lines", []):
+		_log(str(line))
+
+# ── Event Processing ──────────────────────────────────────────────────────
+
 func _process_events(snapshot: Dictionary) -> void:
 	var clock_min: int = int(snapshot["clock"])
 	for event: Dictionary in snapshot["events"]:
+		_track_perf(event)
 		var etype: String = str(event["type"])
 		match etype:
 			# ── Big moments ──
@@ -149,6 +417,7 @@ func _process_events(snapshot: Dictionary) -> void:
 				var from_name: String = str(event.get("from", ""))
 				if to_name != "":
 					_log("[color=#aaaaaa]%d' %s > %s[/color]" % [clock_min, from_name, to_name])
+					animated_pitch.show_pass_line(from_name, to_name, Color(0.80, 0.86, 0.92, 0.55))
 			"pass_received":
 				var who: String = str(event.get("goblin", ""))
 				if who != "":
@@ -161,6 +430,7 @@ func _process_events(snapshot: Dictionary) -> void:
 				var from_name: String = str(event.get("from", ""))
 				var to_name: String = str(event.get("to", ""))
 				_log("[color=yellow]%d' Kick off: %s > %s[/color]" % [clock_min, from_name, to_name])
+				animated_pitch.show_pass_line(from_name, to_name, Color(1.0, 0.9, 0.35, 0.7))
 
 			# ── Turnovers / drama ──
 			"interception":
@@ -199,7 +469,7 @@ func _process_events(snapshot: Dictionary) -> void:
 				_log("[color=#aaddff]%d' %s beats %s![/color]" % [clock_min, who, beaten])
 				_flash_token(who, "take_on")
 			"challenge":
-				pass  # Implicit in take_on - no separate log needed
+				pass
 
 			# ── Clearances / aerials ──
 			"clearance":
@@ -228,7 +498,7 @@ func _process_events(snapshot: Dictionary) -> void:
 				var team2: String = str(event.get("team", ""))
 				_log("[color=#aaddaa]%d' Corner to %s[/color]" % [clock_min, team2])
 			"out":
-				pass  # Don't spam the log with every out event
+				pass
 
 			# ── Violence ──
 			"injury":
@@ -251,6 +521,8 @@ func _process_events(snapshot: Dictionary) -> void:
 			"team_eliminated":
 				var team3: String = str(event.get("team", ""))
 				_log("[color=red][b]%s TEAM WIPED OUT![/b][/color]" % [team3.to_upper()])
+
+			# ── Spell events ──
 			"fireball":
 				_log("[color=#ff6600][b]%d' FIREBALL! Impact on the pitch![/b][/color]" % [clock_min])
 				var fx: float = float(event.get("x", 0.5))
@@ -266,6 +538,64 @@ func _process_events(snapshot: Dictionary) -> void:
 				var mb_team: String = str(event.get("team", ""))
 				var mb_sc: Array = event.get("score", [0, 0])
 				_log("[color=#ffcc33][b]%d' MULTIBALL GOAL for %s! %d-%d[/b][/color]" % [clock_min, mb_team.to_upper(), mb_sc[0], mb_sc[1]])
+			"dark_surge":
+				var ds_gob: String = str(event.get("goblin", ""))
+				_log("[color=#ff9933][b]%d' DARK SURGE! %s's shooting is supercharged![/b][/color]" % [clock_min, ds_gob])
+			"dark_surge_expired":
+				var ds_gob2: String = str(event.get("goblin", ""))
+				_log("[color=#aaaaaa]%d' Dark Surge fades from %s[/color]" % [clock_min, ds_gob2])
+			"shadow_wall":
+				_log("[color=#6677cc][b]%d' SHADOW WALL! Defenders harden![/b][/color]" % [clock_min])
+			"shadow_wall_expired":
+				_log("[color=#aaaaaa]%d' Shadow Wall crumbles...[/color]" % [clock_min])
+			"hex":
+				var hex_gob: String = str(event.get("goblin", ""))
+				_log("[color=#bb44ee][b]%d' HEX! %s is cursed! -2 all stats![/b][/color]" % [clock_min, hex_gob])
+			"hex_expired":
+				var hex_gob2: String = str(event.get("goblin", ""))
+				_log("[color=#aaaaaa]%d' Hex lifts from %s[/color]" % [clock_min, hex_gob2])
+			"blood_pact":
+				var bp_gob: String = str(event.get("goblin", ""))
+				_log("[color=#ee2233][b]%d' BLOOD PACT! %s gains terrible power![/b][/color]" % [clock_min, bp_gob])
+			"frenzy":
+				_log("[color=#ff4444][b]%d' FRENZY! All goblins go berserk![/b][/color]" % [clock_min])
+			"curse_of_post":
+				_log("[color=#8866bb][b]%d' CURSE OF THE POST! The next opponent shot will fail![/b][/color]" % [clock_min])
+			"curse_triggered":
+				var ct_gob: String = str(event.get("goblin", ""))
+				_log("[color=#8866bb]%d' The curse strikes! %s's shot is deflected![/color]" % [clock_min, ct_gob])
+
+func _track_perf(event: Dictionary) -> void:
+	var etype: String = str(event.get("type", ""))
+	var gname: String = str(event.get("goblin", ""))
+	match etype:
+		"goal":
+			if gname in _perf:
+				_perf[gname]["goals"] += 1
+				if gname in _last_passer_to and _last_passer_to[gname] in _perf:
+					_perf[_last_passer_to[gname]]["assists"] += 1
+		"tackle":
+			if gname in _perf:
+				_perf[gname]["tackles"] += 1
+		"take_on":
+			if gname in _perf:
+				_perf[gname]["take_ons"] += 1
+		"interception":
+			if gname in _perf:
+				_perf[gname]["interceptions"] += 1
+		"save":
+			var keeper: String = str(event.get("keeper", ""))
+			if keeper in _perf:
+				_perf[keeper]["saves"] += 1
+		"pass":
+			var from_name: String = str(event.get("from", ""))
+			var to_name: String = str(event.get("to", ""))
+			if to_name != "":
+				_last_passer_to[to_name] = from_name
+		"dispossessed":
+			var by: String = str(event.get("by", ""))
+			if by in _perf:
+				_perf[by]["tackles"] += 1
 
 func _flash_token(goblin_name: String, event_type: String) -> void:
 	var token: Control = animated_pitch.get_goblin_token(goblin_name)
@@ -274,12 +604,10 @@ func _flash_token(goblin_name: String, event_type: String) -> void:
 
 func _update_ui(snapshot: Dictionary) -> void:
 	var sc: Array = snapshot["score"]
-	clock_label.text = "%d'" % int(snapshot["clock"])
-
-	# Spell button visibility
-	_fireball_btn.visible = bool(snapshot.get("fireball_available", false))
-	_haste_btn.visible = bool(snapshot.get("haste_available", false))
-	_multiball_btn.visible = bool(snapshot.get("multiball_available", false))
+	var phase_suffix: String = ""
+	if _director_phase_label != "":
+		phase_suffix = "  %s" % _director_phase_label
+	clock_label.text = "%d'%s" % [int(snapshot["clock"]), phase_suffix]
 
 	# Track possession
 	for gdata: Dictionary in snapshot["goblins"]:
@@ -299,6 +627,11 @@ func _update_ui(snapshot: Dictionary) -> void:
 		var home_pct: int = int(round(float(_home_possession_ticks) / float(total) * 100.0))
 		poss_str = "  (%d%%-%d%%)" % [home_pct, 100 - home_pct]
 	score_label.text = "HOME %d - %d AWAY%s" % [sc[0], sc[1], poss_str]
+
+	# Hide spell buttons when match is over
+	if sim.is_match_over():
+		_spell_container.visible = false
+		_mana_label.visible = false
 
 var _halftime_logged: bool = false
 
@@ -329,12 +662,20 @@ func _on_match_over(snapshot: Dictionary) -> void:
 		_log("[color=yellow]DRAW![/color]")
 
 	if RunManager.run_active:
+		# Apply Blood Pact post-match injuries
+		_spell_system.apply_post_match_injuries()
+		for g in sim.get_blood_pact_targets():
+			if g.is_alive() and g.injury == GoblinData.InjuryState.HEALTHY:
+				g.apply_injury(GoblinData.InjuryState.MINOR)
+				_log("[color=#ee2233]%s suffers from the Blood Pact![/color]" % g.goblin_name)
+
 		var prev_gold: int = RunManager.gold
 		RunManager.record_match_result(int(sc[0]), int(sc[1]))
 		RunManager.simulate_remaining_group_matches()
 		RunManager.advance_tournament()
 		var gold_earned: int = RunManager.gold - prev_gold
 		_log("[color=#ffd700]Gold earned: %d (Total: %d)[/color]" % [gold_earned, RunManager.gold])
+		_award_xp()
 		back_btn.text = "CONTINUE"
 	else:
 		back_btn.text = "BACK"
@@ -349,43 +690,47 @@ func _speed_text() -> String:
 
 func _log(text: String) -> void:
 	event_log.append_text(text + "\n")
+	event_log.call_deferred("scroll_to_line", maxi(event_log.get_line_count() - 1, 0))
 
-# ── Fireball Targeting ─────────────────────────────────────────────────────
+func _award_xp() -> void:
+	_log("")
+	_log("[color=#aaddff]— XP Gains —[/color]")
+	var player_roster: Array[GoblinData] = GameManager.selected_roster
+	for g in player_roster:
+		if not g.is_alive():
+			continue
+		var stats: Dictionary = _perf.get(g.goblin_name, {})
+		var goals: int = stats.get("goals", 0)
+		var assists: int = stats.get("assists", 0)
+		var tackles: int = stats.get("tackles", 0)
+		var take_ons: int = stats.get("take_ons", 0)
+		var interceptions: int = stats.get("interceptions", 0)
+		var saves: int = stats.get("saves", 0)
 
-func _on_fireball_pressed() -> void:
-	if _fireball_targeting:
-		_cancel_fireball_targeting()
-		return
-	_fireball_targeting = true
-	_paused = true
-	_fireball_btn.text = "CANCEL"
-	animated_pitch.set_fireball_targeting(true)
-	_log("[color=#ff6600]Click anywhere on the pitch to launch fireball![/color]")
+		var total_xp := XP_PLAYED
+		total_xp += goals * XP_GOAL
+		total_xp += assists * XP_ASSIST
+		total_xp += tackles * XP_TACKLE
+		total_xp += take_ons * XP_TAKE_ON
+		total_xp += interceptions * XP_INTERCEPTION
+		total_xp += saves * XP_SAVE
 
-func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
-	if not _fireball_targeting:
-		return
-	sim.cast_fireball(0, pitch_x, pitch_y)
-	# Process the events immediately (sim didn't tick, but events were added)
-	var snapshot := sim._build_snapshot()
-	_process_events(snapshot)
-	_cancel_fireball_targeting()
+		var prev_level := g.level
+		var levels_gained := g.add_xp(total_xp)
 
-func _cancel_fireball_targeting() -> void:
-	_fireball_targeting = false
-	_paused = false
-	_fireball_btn.text = "FIREBALL"
-	animated_pitch.set_fireball_targeting(false)
+		var parts: Array[String] = []
+		if goals > 0: parts.append("%dG" % goals)
+		if assists > 0: parts.append("%dA" % assists)
+		if tackles > 0: parts.append("%dT" % tackles)
+		if take_ons > 0: parts.append("%dTO" % take_ons)
+		if interceptions > 0: parts.append("%dI" % interceptions)
+		if saves > 0: parts.append("%dS" % saves)
+		var detail := " (%s)" % ", ".join(parts) if parts.size() > 0 else ""
 
-func _on_haste_pressed() -> void:
-	sim.cast_haste(0)
-	var snapshot := sim._build_snapshot()
-	_process_events(snapshot)
-
-func _on_multiball_pressed() -> void:
-	sim.cast_multiball(0)
-	var snapshot := sim._build_snapshot()
-	_process_events(snapshot)
+		if levels_gained > 0:
+			_log("[color=lime]%s +%dxp%s → LEVEL %d![/color]" % [g.goblin_name, total_xp, detail, g.level])
+		else:
+			_log("[color=#aaaaaa]%s +%dxp%s (%d/%d)[/color]" % [g.goblin_name, total_xp, detail, g.xp, g.xp_to_next_level()])
 
 func _on_back_pressed() -> void:
 	if RunManager.run_active and sim != null and sim.is_match_over():
@@ -394,9 +739,9 @@ func _on_back_pressed() -> void:
 		get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")
 
 func _input(event: InputEvent) -> void:
-	if _fireball_targeting:
+	if _targeting_spell_index >= 0:
 		if event.is_action_pressed("ui_cancel") or (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT):
-			_cancel_fireball_targeting()
+			_cancel_targeting()
 			return
 	if event.is_action_pressed("ui_cancel"):
 		if sim != null and sim.is_match_over():

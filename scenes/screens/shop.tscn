@@ -20,39 +20,38 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.102, 0.102, 0.141, 1)
 
-[node name="MainLayout" type="VBoxContainer" parent="."]
+[node name="OuterLayout" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 12
 
-[node name="TopBar" type="HBoxContainer" parent="MainLayout"]
+[node name="TopBar" type="HBoxContainer" parent="OuterLayout"]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="TopMargin" type="MarginContainer" parent="MainLayout/TopBar"]
+[node name="TopMargin" type="MarginContainer" parent="OuterLayout/TopBar"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 12
+theme_override_constants/margin_top = 8
 
-[node name="GoldLabel" type="Label" parent="MainLayout/TopBar/TopMargin"]
+[node name="GoldLabel" type="Label" parent="OuterLayout/TopBar/TopMargin"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "10g"
 theme_override_font_sizes/font_size = 28
 theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
 
-[node name="TierMargin" type="MarginContainer" parent="MainLayout/TopBar"]
+[node name="TierMargin" type="MarginContainer" parent="OuterLayout/TopBar"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/margin_right = 16
-theme_override_constants/margin_top = 12
+theme_override_constants/margin_top = 8
 
-[node name="TierLabel" type="Label" parent="MainLayout/TopBar/TierMargin"]
+[node name="TierLabel" type="Label" parent="OuterLayout/TopBar/TierMargin"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Tier 1"
@@ -60,49 +59,133 @@ horizontal_alignment = 2
 theme_override_font_sizes/font_size = 16
 theme_override_colors/font_color = Color(0.5, 0.8, 1.0, 1)
 
-[node name="ShopLabel" type="Label" parent="MainLayout"]
+[node name="MainScroll" type="ScrollContainer" parent="OuterLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="MainLayout" type="VBoxContainer" parent="OuterLayout/MainScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="ShopLabel" type="Label" parent="OuterLayout/MainScroll/MainLayout"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "SHOP"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 22
 
-[node name="CardMargin" type="MarginContainer" parent="MainLayout"]
+[node name="CardMargin" type="MarginContainer" parent="OuterLayout/MainScroll/MainLayout"]
 layout_mode = 2
-size_flags_vertical = 3
 theme_override_constants/margin_left = 16
 theme_override_constants/margin_right = 16
 
-[node name="CardRow" type="HBoxContainer" parent="MainLayout/CardMargin"]
+[node name="CardRow" type="HBoxContainer" parent="OuterLayout/MainScroll/MainLayout/CardMargin"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_vertical = 4
 alignment = 1
 theme_override_constants/separation = 12
 
-[node name="BottomMargin" type="MarginContainer" parent="MainLayout"]
+[node name="HealLabel" type="Label" parent="OuterLayout/MainScroll/MainLayout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "HEALING"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+
+[node name="HealMargin" type="MarginContainer" parent="OuterLayout/MainScroll/MainLayout"]
 layout_mode = 2
 theme_override_constants/margin_left = 16
 theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
 
-[node name="ButtonRow" type="HBoxContainer" parent="MainLayout/BottomMargin"]
+[node name="HealRow" type="HBoxContainer" parent="OuterLayout/MainScroll/MainLayout/HealMargin"]
+unique_name_in_owner = true
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="RecruitLabel" type="Label" parent="OuterLayout/MainScroll/MainLayout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "RECRUITMENT"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+
+[node name="RecruitMargin" type="MarginContainer" parent="OuterLayout/MainScroll/MainLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 16
+
+[node name="RecruitRow" type="HBoxContainer" parent="OuterLayout/MainScroll/MainLayout/RecruitMargin"]
+unique_name_in_owner = true
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="ItemLabel" type="Label" parent="OuterLayout/MainScroll/MainLayout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "EQUIPMENT"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+
+[node name="ItemMargin" type="MarginContainer" parent="OuterLayout/MainScroll/MainLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 16
+
+[node name="ItemRow" type="HBoxContainer" parent="OuterLayout/MainScroll/MainLayout/ItemMargin"]
+unique_name_in_owner = true
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="SpellLabel" type="Label" parent="OuterLayout/MainScroll/MainLayout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SPELLS"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+
+[node name="SpellMargin" type="MarginContainer" parent="OuterLayout/MainScroll/MainLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 16
+
+[node name="SpellRow" type="HBoxContainer" parent="OuterLayout/MainScroll/MainLayout/SpellMargin"]
+unique_name_in_owner = true
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="BottomSpacer" type="Control" parent="OuterLayout/MainScroll/MainLayout"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 16)
+
+[node name="BottomMargin" type="MarginContainer" parent="OuterLayout"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 8
+
+[node name="ButtonRow" type="HBoxContainer" parent="OuterLayout/BottomMargin"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="RemoveBtn" type="Button" parent="MainLayout/BottomMargin/ButtonRow"]
+[node name="RemoveBtn" type="Button" parent="OuterLayout/BottomMargin/ButtonRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 48)
+custom_minimum_size = Vector2(0, 44)
 text = "Remove a Card (3g)"
 theme_override_font_sizes/font_size = 16
 
-[node name="ContinueBtn" type="Button" parent="MainLayout/BottomMargin/ButtonRow"]
+[node name="ContinueBtn" type="Button" parent="OuterLayout/BottomMargin/ButtonRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 48)
+custom_minimum_size = Vector2(0, 44)
 text = "CONTINUE"
 theme_override_font_sizes/font_size = 18
 

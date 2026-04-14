@@ -8,6 +8,17 @@ const GOLD_LOSS: int = 25
 const GOLD_PER_GOAL: int = 10
 const GOLD_GOAL_CAP: int = 5
 
+# Healing costs
+const HEAL_MINOR_COST: int = 30
+const HEAL_MAJOR_COST: int = 80
+
+# Recruitment costs
+const RECRUIT_COST_MIN: int = 60
+const RECRUIT_COST_MAX: int = 120
+
+# Minimum roster size to continue a run
+const MIN_ROSTER_SIZE: int = 6
+
 # Run state
 var run_active: bool = false
 var gold: int = 0
@@ -21,6 +32,9 @@ var player_faction: int = 0
 # Persistent deck across matches
 var run_deck_cards: Array[CardData] = []
 
+# Spell deck across matches (Phase 6)
+var run_spell_deck: Array[SpellData] = []
+
 # Match results history
 var match_results: Array[Dictionary] = []
 
@@ -33,6 +47,7 @@ func start_tournament(roster: Array[GoblinData]) -> void:
 
 	player_faction = FactionSystem.get_majority_faction(roster)
 	run_deck_cards = CardDatabase.player_starter_deck()
+	run_spell_deck = SpellDatabase.starter_deck()
 
 	tournament = TeamGenerator.generate_tournament(roster, player_faction)
 
@@ -110,6 +125,31 @@ func record_match_result(p_goals: int, o_goals: int) -> void:
 	gold_earned += mini(p_goals * GOLD_PER_GOAL, GOLD_GOAL_CAP)
 	add_gold(gold_earned)
 
+	# Apply fatigue: players who played gain fatigue, bench goblins rest
+	var played_goblins: Array[GoblinData] = []
+	played_goblins.assign(GameManager.selected_roster)
+	var player_team := tournament.get_team(tournament.player_team_index)
+	if player_team:
+		for g in player_team.roster:
+			if not g.is_alive():
+				continue
+			if g in played_goblins:
+				g.add_match_fatigue()
+			else:
+				g.rest()
+
+	# Scan player roster for injuries/deaths sustained this match
+	var injuries: Array[Dictionary] = []
+	var deaths: Array[String] = []
+	if player_team:
+		for g in player_team.roster:
+			if g.injury == GoblinData.InjuryState.DEAD:
+				deaths.append(g.goblin_name)
+			elif g.injury == GoblinData.InjuryState.MAJOR:
+				injuries.append({"name": g.goblin_name, "severity": "major"})
+			elif g.injury == GoblinData.InjuryState.MINOR:
+				injuries.append({"name": g.goblin_name, "severity": "minor"})
+
 	# Track match history
 	match_results.append({
 		"opponent_name": tournament.get_team(opp_idx).team_name if tournament.get_team(opp_idx) else "Unknown",
@@ -119,7 +159,17 @@ func record_match_result(p_goals: int, o_goals: int) -> void:
 		"won": won,
 		"stage": get_stage_name(),
 		"gold_earned": gold_earned,
+		"injuries": injuries,
+		"deaths": deaths,
 	})
+
+	# Prune dead goblins from roster permanently
+	if player_team:
+		var alive_roster: Array[GoblinData] = []
+		for g in player_team.roster:
+			if g.is_alive():
+				alive_roster.append(g)
+		player_team.roster = alive_roster
 
 func simulate_remaining_group_matches() -> void:
 	## After the player plays a group matchday, simulate all other group matches for that matchday.
@@ -207,6 +257,9 @@ func _fixture_stage_matches_tournament(f: FixtureData) -> bool:
 func is_eliminated() -> bool:
 	if not tournament:
 		return false
+	# Can't field a full squad = run over
+	if get_alive_roster().size() < MIN_ROSTER_SIZE:
+		return true
 	# Group stage: check after all 3 matchdays
 	if tournament.stage == TournamentData.Stage.GROUP and tournament.group_matchday >= 3:
 		var pg := tournament.get_player_group()
@@ -241,10 +294,30 @@ func remove_deck_card(index: int) -> void:
 	if index >= 0 and index < run_deck_cards.size():
 		run_deck_cards.remove_at(index)
 
+func add_spell_card(spell: SpellData) -> void:
+	run_spell_deck.append(spell)
+
+func remove_spell_card(index: int) -> void:
+	if index >= 0 and index < run_spell_deck.size():
+		run_spell_deck.remove_at(index)
+
+func get_player_roster() -> Array[GoblinData]:
+	if tournament:
+		return tournament.get_team(tournament.player_team_index).roster
+	return []
+
+func get_alive_roster() -> Array[GoblinData]:
+	var alive: Array[GoblinData] = []
+	for g in get_player_roster():
+		if g.is_alive():
+			alive.append(g)
+	return alive
+
 func reset_run() -> void:
 	run_active = false
 	gold = 0
 	player_faction = 0
 	run_deck_cards.clear()
+	run_spell_deck.clear()
 	match_results.clear()
 	tournament = null

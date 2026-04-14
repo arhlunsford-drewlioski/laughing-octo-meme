@@ -42,7 +42,14 @@ func _show_match_result() -> void:
 	result_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
 	result_label.add_theme_font_size_override("font_size", 18)
 
-	progress_label.text = "Run: " + str(RunManager.wins) + "W - " + str(RunManager.losses) + "L  |  Deck: " + str(RunManager.run_deck_cards.size()) + " cards"
+	var wins := 0
+	var losses := 0
+	for r in RunManager.match_results:
+		if r.get("won", false):
+			wins += 1
+		else:
+			losses += 1
+	progress_label.text = "Run: " + str(wins) + "W - " + str(losses) + "L  |  Deck: " + str(RunManager.run_deck_cards.size()) + " cards"
 
 func _generate_rewards() -> void:
 	reward_choices = CardDatabase.get_random_rewards(3)
