@@ -159,7 +159,7 @@ func _build_spell_hand_ui() -> void:
 		var spell: SpellData = _spell_system.hand[i]
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(0, 0)
-		btn.add_theme_font_size_override("font_size", 11)
+		btn.add_theme_font_size_override("font_size", 13)
 		_update_spell_button(btn, spell, i)
 		btn.pressed.connect(_on_spell_pressed.bind(i))
 		_spell_container.add_child(btn)

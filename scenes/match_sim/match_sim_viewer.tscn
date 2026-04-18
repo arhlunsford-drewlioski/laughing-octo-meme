@@ -101,8 +101,8 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 bbcode_enabled = true
-theme_override_colors/default_color = Color(0.75, 0.75, 0.75, 1)
-theme_override_font_sizes/normal_font_size = 13
+theme_override_colors/default_color = Color(0.9, 0.88, 0.85, 1)
+theme_override_font_sizes/normal_font_size = 14
 scroll_following = true
 
 [node name="SpeedBtn" type="Button" parent="MainLayout/BottomMargin/BottomBar"]

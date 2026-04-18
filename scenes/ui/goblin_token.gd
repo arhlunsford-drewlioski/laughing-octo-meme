@@ -2,7 +2,7 @@ extends Control
 ## Individual goblin token node. Can be tweened, highlighted, and later swapped for sprite art.
 
 const TOKEN_RADIUS := 26.0
-const TOKEN_FONT_SIZE := 11
+const TOKEN_FONT_SIZE := 12
 
 const PLAYER_BG := Color(0.18, 0.35, 0.22)
 const PLAYER_BORDER := Color(0.788, 0.659, 0.298)
@@ -119,7 +119,7 @@ func _draw() -> void:
 	var center := Vector2(TOKEN_RADIUS, TOKEN_RADIUS)
 	var bg_color: Color = PLAYER_BG if is_player else OPPONENT_BG
 	var border_color: Color = PLAYER_BORDER if is_player else OPPONENT_BORDER
-	var alpha: float = 1.0 if is_player else 0.75
+	var alpha: float = 1.0 if is_player else 0.9
 
 	# Circle background
 	draw_circle(center, TOKEN_RADIUS, Color(bg_color.r, bg_color.g, bg_color.b, alpha))

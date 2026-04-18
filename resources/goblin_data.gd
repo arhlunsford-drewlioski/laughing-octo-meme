@@ -33,6 +33,7 @@ var injury_stat_penalties: Dictionary = {}
 # ── XP / Leveling ───────────────────────────────────────────────────────────
 var xp: int = 0
 var level: int = 1
+var pending_level_ups: int = 0  # Player chooses which stat to increase
 
 const XP_PER_LEVEL_BASE: int = 100  # XP needed = XP_PER_LEVEL_BASE * level
 
@@ -46,21 +47,22 @@ func add_xp(amount: int) -> int:
 	while xp >= xp_to_next_level():
 		xp -= xp_to_next_level()
 		level += 1
-		_apply_level_up()
+		pending_level_ups += 1
 		levels_gained += 1
 	return levels_gained
 
-func _apply_level_up() -> void:
-	## +1 to a stat, weighted toward position's primary stats.
-	var primary_stats := PositionDatabase.get_primary_stats(position)
-	var pool: Array[String] = []
-	for stat_name in STAT_KEYS:
-		pool.append(stat_name)
-		if stat_name in primary_stats:
-			pool.append(stat_name)  # Double weight for primary stats
-	pool.shuffle()
-	var chosen: String = pool[0]
-	set(chosen, mini(get(chosen) + 1, 10))
+func apply_stat_increase(stat_name: String) -> bool:
+	## Player chose a stat to increase. Returns false if no pending level-ups.
+	if pending_level_ups <= 0:
+		return false
+	if stat_name not in STAT_KEYS:
+		return false
+	set(stat_name, mini(get(stat_name) + 1, 10))
+	pending_level_ups -= 1
+	return true
+
+func has_pending_level_up() -> bool:
+	return pending_level_ups > 0
 
 # ── Fatigue (0-10) ───────────────────────────────────────────────────────────
 ## 0 = fresh, 10 = exhausted. Playing a match adds FATIGUE_PER_MATCH, resting removes FATIGUE_REST.
