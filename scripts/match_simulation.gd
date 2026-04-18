@@ -9,7 +9,7 @@ extends RefCounted
 const TICKS_PER_SECOND: float = 10.0
 const TICK_DELTA: float = 1.0 / TICKS_PER_SECOND  # 0.1s real time
 const MATCH_DURATION: float = 90.0  # match minutes
-const MINUTES_PER_TICK: float = 0.14  # slower match clock so build-up reads on screen
+const MINUTES_PER_TICK: float = 0.08  # ~3 min real-time at default 0.6x speed
 const MOVEMENT_SPEED: float = 0.0090  # base jog speed
 const SPRINT_MULTIPLIER: float = 1.40  # sprinting - visibly faster than jogging
 const PASS_SPEED: float = 0.80  # readable pass speed
@@ -1412,7 +1412,34 @@ func _update_ideal_positions() -> void:
 							continue
 		gs["is_support_runner"] = false
 
-		# ── STATE 3: Urgent AI action (chase/tackle/press) ──
+		# ── STATE 3: Active roles - computed directly every tick ──
+		# These bypass action_targets (which only last 1 tick and cause oscillation)
+		var goblin_role: int = coordinator.get_role(goblin)
+
+		# LOOSE_CHASER: sprint directly at the ball - no zone restriction
+		if goblin_role == TeamCoordinator.Role.LOOSE_CHASER:
+			gs["ideal_x"] = ball.x
+			gs["ideal_y"] = ball.y
+			gs["sprinting"] = true
+			continue
+
+		# Nearby goblins also chase loose balls (not just the designated chaser)
+		if is_loose and goblin.position != "keeper":
+			var dist_to_loose: float = sqrt((_gf(gs, "x") - ball.x) ** 2 + (_gf(gs, "y") - ball.y) ** 2)
+			if dist_to_loose < 0.15:
+				gs["ideal_x"] = ball.x
+				gs["ideal_y"] = ball.y
+				gs["sprinting"] = true
+				continue
+
+		# PRESSER: chase ball carrier - zone expands toward ball in post-movement clamp
+		if goblin_role == TeamCoordinator.Role.PRESSER and not my_team_has_ball:
+			gs["ideal_x"] = ball.x
+			gs["ideal_y"] = ball.y
+			gs["sprinting"] = true
+			continue
+
+		# AI action targets (for dribble targets, pass targets, etc.)
 		if _action_targets.has(goblin):
 			gs["ideal_x"] = _gf(_action_targets[goblin], "x")
 			gs["ideal_y"] = _gf(_action_targets[goblin], "y")
@@ -1871,13 +1898,22 @@ func _move_all_goblins() -> void:
 					var prx1: float = float(zr_rect[1])
 					var pry0: float = float(zr_rect[2])
 					var pry1: float = float(zr_rect[3])
-					if ball.x < prx0: prx0 = maxf(ball.x - 0.02, 0.02)
-					elif ball.x > prx1: prx1 = minf(ball.x + 0.02, 0.98)
-					if ball.y < pry0: pry0 = maxf(ball.y - 0.02, 0.05)
-					elif ball.y > pry1: pry1 = minf(ball.y + 0.02, 0.95)
+					if ball.x < prx0:
+						prx0 = maxf(ball.x - 0.02, 0.02)
+					elif ball.x > prx1:
+						prx1 = minf(ball.x + 0.02, 0.98)
+					if ball.y < pry0:
+						pry0 = maxf(ball.y - 0.02, 0.05)
+					elif ball.y > pry1:
+						pry1 = minf(ball.y + 0.02, 0.95)
 					zr_rect = [prx0, prx1, pry0, pry1]
-				gs["x"] = clampf(_gf(gs, "x"), float(zr_rect[0]), float(zr_rect[1]))
-				gs["y"] = clampf(_gf(gs, "y"), float(zr_rect[2]), float(zr_rect[3]))
+				# Smooth zone pull instead of hard snap (prevents teleporting)
+				var zx: float = _gf(gs, "x")
+				var zy: float = _gf(gs, "y")
+				var zclamp_x: float = clampf(zx, float(zr_rect[0]), float(zr_rect[1]))
+				var zclamp_y: float = clampf(zy, float(zr_rect[2]), float(zr_rect[3]))
+				gs["x"] = lerpf(zx, zclamp_x, 0.3)
+				gs["y"] = lerpf(zy, zclamp_y, 0.3)
 
 		# Update facing: moving = face movement direction, still = face the ball
 		if absf(vel_x) > 0.001:

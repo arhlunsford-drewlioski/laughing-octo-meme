@@ -189,12 +189,8 @@ func _refresh_mana() -> void:
 
 func _get_spell_color(spell: SpellData) -> Color:
 	match spell.special_effect:
-		"fireball":
-			return Color(1.0, 0.4, 0.1)
 		"haste":
 			return Color(0.3, 1.0, 0.4)
-		"multiball":
-			return Color(1.0, 0.8, 0.2)
 		"shadow_wall":
 			return Color(0.4, 0.5, 0.9)
 		"hex":
@@ -205,8 +201,6 @@ func _get_spell_color(spell: SpellData) -> Color:
 			return Color(1.0, 0.3, 0.3)
 		"curse_of_post":
 			return Color(0.6, 0.4, 0.7)
-		"necromancy":
-			return Color(0.2, 0.9, 0.5)
 		_:
 			# Dark Surge or others without special_effect
 			if spell.stat_modifiers.has("shooting") and spell.stat_modifiers["shooting"] > 0:
@@ -225,29 +219,15 @@ func _on_spell_pressed(hand_index: int) -> void:
 
 	var spell: SpellData = _spell_system.hand[hand_index]
 
-	# Determine targeting mode based on spell
-	match spell.special_effect:
-		"fireball":
-			_start_targeting(hand_index, "pitch")
-		"haste", "shadow_wall", "frenzy", "multiball", "curse_of_post":
-			# No targeting needed, cast immediately
-			_cast_spell_immediate(hand_index)
-		"necromancy":
-			# Special: no targeting in sim, just cast
-			_cast_spell_immediate(hand_index)
-		"hex":
-			_start_targeting(hand_index, "enemy")
-		"blood_pact":
+	# Determine targeting mode based on spell target type
+	match spell.target_type:
+		SpellData.TargetType.ALLY:
 			_start_targeting(hand_index, "ally")
+		SpellData.TargetType.ENEMY:
+			_start_targeting(hand_index, "enemy")
 		_:
-			# Default: check target type
-			match spell.target_type:
-				SpellData.TargetType.ALLY:
-					_start_targeting(hand_index, "ally")
-				SpellData.TargetType.ENEMY:
-					_start_targeting(hand_index, "enemy")
-				_:
-					_cast_spell_immediate(hand_index)
+			# No targeting needed (ALL_ALLIES, NONE) - cast immediately
+			_cast_spell_immediate(hand_index)
 
 func _start_targeting(hand_index: int, mode: String) -> void:
 	_targeting_spell_index = hand_index
@@ -256,9 +236,6 @@ func _start_targeting(hand_index: int, mode: String) -> void:
 	var spell: SpellData = _spell_system.hand[hand_index]
 
 	match mode:
-		"pitch":
-			animated_pitch.set_fireball_targeting(true)
-			_log("[color=#ff6600]Click on the pitch to cast %s![/color]" % spell.spell_name)
 		"ally":
 			_log("[color=#33ff55]Click one of your goblins to cast %s![/color]" % spell.spell_name)
 		"enemy":
@@ -269,8 +246,6 @@ func _start_targeting(hand_index: int, mode: String) -> void:
 		_spell_buttons[hand_index].text = "CANCEL"
 
 func _cancel_targeting() -> void:
-	if _targeting_mode == "pitch":
-		animated_pitch.set_fireball_targeting(false)
 	_targeting_spell_index = -1
 	_targeting_mode = ""
 	_paused = false
@@ -282,24 +257,23 @@ func _cast_spell_immediate(hand_index: int) -> void:
 		return
 
 	match spell.special_effect:
-		"haste":
-			sim.cast_haste(0)
-		"shadow_wall":
-			sim.cast_shadow_wall(0)
-		"multiball":
-			sim.cast_multiball(0)
-		"frenzy":
-			sim.cast_frenzy(0)
 		"curse_of_post":
 			sim.cast_curse_of_post(0)
-		"necromancy":
-			_log("[color=#22dd66][b]NECROMANCY! The dark arts stir...[/b][/color]")
-			# Necromancy: not yet implemented in sim (would need dead goblin revival)
-			# For now, log it as a placeholder
 		_:
-			# Dark Surge with no target = boost random ally
-			if spell.target_type == SpellData.TargetType.ALL_ALLIES:
-				sim.cast_shadow_wall(0)  # fallback
+			# Generic: apply stat_modifiers to all allies or all enemies
+			if not spell.stat_modifiers.is_empty():
+				var duration_ticks: int = int(spell.duration * MatchSimulation.TICKS_PER_SECOND) if spell.duration > 0.0 else 0
+				var source: String = spell.special_effect if spell.special_effect != "" else spell.spell_name.to_lower().replace(" ", "_")
+				var target_formation: Formation
+				if spell.target_type == SpellData.TargetType.ALL_ENEMIES:
+					target_formation = away_formation
+				else:
+					target_formation = home_formation
+				for goblin in target_formation.get_all():
+					if sim.goblin_states.has(goblin):
+						for stat_name in spell.stat_modifiers:
+							sim._apply_buff(goblin, stat_name, int(spell.stat_modifiers[stat_name]), duration_ticks, source)
+				_log("[color=#ffcc33][b]%s cast![/b][/color]" % spell.spell_name)
 
 	var snapshot := sim._build_snapshot()
 	_apply_director(snapshot)
@@ -311,16 +285,23 @@ func _cast_spell_targeted(hand_index: int, target: GoblinData) -> void:
 	if spell == null:
 		return
 
+	# Handle special effects first, then fall through to generic buff
 	match spell.special_effect:
 		"hex":
 			sim.cast_hex(0, target)
 		"blood_pact":
 			sim.cast_blood_pact(0, target)
 			_spell_system.blood_pact_targets.append(target)
+		"dark_ascension":
+			_spell_system.dark_ascension_targets.append(target)
+			_log("[color=#ff00ff][b]DARK ASCENSION! %s transcends... but at what cost?[/b][/color]" % target.goblin_name)
 		_:
-			# Dark Surge (stat modifier on ally)
-			if spell.stat_modifiers.has("shooting") and spell.target_type == SpellData.TargetType.ALLY:
-				sim.cast_dark_surge(0, target)
+			# Generic: apply all stat_modifiers as buffs to the target
+			var duration_ticks: int = int(spell.duration * MatchSimulation.TICKS_PER_SECOND) if spell.duration > 0.0 else 0
+			var source: String = spell.special_effect if spell.special_effect != "" else spell.spell_name.to_lower().replace(" ", "_")
+			for stat_name in spell.stat_modifiers:
+				sim._apply_buff(target, stat_name, int(spell.stat_modifiers[stat_name]), duration_ticks, source)
+			_log("[color=#ffcc33][b]%s cast on %s![/b][/color]" % [spell.spell_name, target.goblin_name])
 
 	var snapshot := sim._build_snapshot()
 	_apply_director(snapshot)
@@ -336,21 +317,7 @@ func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
 	if _targeting_spell_index < 0:
 		return
 
-	if _targeting_mode == "pitch":
-		# Fireball targeting
-		var spell := _spell_system.cast(_targeting_spell_index)
-		if spell:
-			sim.cast_fireball(0, pitch_x, pitch_y)
-			var snapshot := sim._build_snapshot()
-			_apply_director(snapshot)
-			_process_events(snapshot)
-		animated_pitch.set_fireball_targeting(false)
-		_targeting_spell_index = -1
-		_targeting_mode = ""
-		_paused = false
-		_build_spell_hand_ui()
-		_refresh_mana()
-	elif _targeting_mode == "ally" or _targeting_mode == "enemy":
+	if _targeting_mode == "ally" or _targeting_mode == "enemy":
 		# Find nearest goblin to click
 		var target := _find_nearest_goblin(pitch_x, pitch_y, _targeting_mode == "ally")
 		if target:
@@ -523,21 +490,10 @@ func _process_events(snapshot: Dictionary) -> void:
 				_log("[color=red][b]%s TEAM WIPED OUT![/b][/color]" % [team3.to_upper()])
 
 			# ── Spell events ──
-			"fireball":
-				_log("[color=#ff6600][b]%d' FIREBALL! Impact on the pitch![/b][/color]" % [clock_min])
-				var fx: float = float(event.get("x", 0.5))
-				var fy: float = float(event.get("y", 0.5))
-				animated_pitch.play_fireball_explosion(fx, fy)
 			"haste":
 				_log("[color=#33ff55][b]%d' HASTE! Your goblins surge with speed![/b][/color]" % [clock_min])
 			"haste_expired":
 				_log("[color=#aaaaaa]%d' Haste wears off...[/color]" % [clock_min])
-			"multiball":
-				_log("[color=#ffcc33][b]%d' MULTIBALL! Chaos unleashed![/b][/color]" % [clock_min])
-			"multiball_goal":
-				var mb_team: String = str(event.get("team", ""))
-				var mb_sc: Array = event.get("score", [0, 0])
-				_log("[color=#ffcc33][b]%d' MULTIBALL GOAL for %s! %d-%d[/b][/color]" % [clock_min, mb_team.to_upper(), mb_sc[0], mb_sc[1]])
 			"dark_surge":
 				var ds_gob: String = str(event.get("goblin", ""))
 				_log("[color=#ff9933][b]%d' DARK SURGE! %s's shooting is supercharged![/b][/color]" % [clock_min, ds_gob])
@@ -668,6 +624,12 @@ func _on_match_over(snapshot: Dictionary) -> void:
 			if g.is_alive() and g.injury == GoblinData.InjuryState.HEALTHY:
 				g.apply_injury(GoblinData.InjuryState.MINOR)
 				_log("[color=#ee2233]%s suffers from the Blood Pact![/color]" % g.goblin_name)
+
+		# Apply Dark Ascension post-match deaths
+		for g in _spell_system.dark_ascension_targets:
+			if g.is_alive():
+				g.apply_injury(GoblinData.InjuryState.DEAD)
+				_log("[color=#ff00ff][b]%s is consumed by the dark magic. Gone forever.[/b][/color]" % g.goblin_name)
 
 		var prev_gold: int = RunManager.gold
 		RunManager.record_match_result(int(sc[0]), int(sc[1]))

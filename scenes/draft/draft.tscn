@@ -41,7 +41,7 @@ layout_mode = 2
 [node name="TitleLabel" type="Label" parent="MainLayout/TopMargin/Header"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "DRAFT YOUR TEAM"
+text = "DRAFT YOUR SQUAD (pick 10, field 6 per match)"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 24
 
@@ -75,9 +75,9 @@ theme_override_constants/margin_right = 16
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-columns = 2
-theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 8
+columns = 4
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 6
 
 [node name="BottomMargin" type="MarginContainer" parent="MainLayout"]
 layout_mode = 2

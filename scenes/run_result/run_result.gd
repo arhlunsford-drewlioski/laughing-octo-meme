@@ -50,7 +50,7 @@ func _display_results() -> void:
 			" [color=#" + dim_hex + "](" + opp_info["style"] + ")[/color]\n"
 		)
 
-	details_label.append_text("\n[color=#" + cream_hex + "]Final deck: " + str(RunManager.run_deck_cards.size()) + " cards[/color]")
+	details_label.append_text("\n[color=#" + cream_hex + "]Final spells: " + str(RunManager.run_spell_deck.size()) + "[/color]")
 
 	var p_info := FactionSystem.get_faction_info(RunManager.player_faction)
 	if RunManager.player_faction != FactionSystem.Faction.NONE:

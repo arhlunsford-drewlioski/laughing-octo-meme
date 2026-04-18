@@ -15,6 +15,9 @@ var _cast_this_match: Array[String] = []
 # Blood Pact targets: goblins that will take injury post-match
 var blood_pact_targets: Array[GoblinData] = []
 
+# Dark Ascension targets: goblins that will DIE post-match
+var dark_ascension_targets: Array[GoblinData] = []
+
 # Curse of the Post: number of shots to auto-miss
 var curse_charges: int = 0
 
@@ -24,6 +27,7 @@ func setup(spell_deck: Array[SpellData]) -> void:
 	mana = STARTING_MANA
 	_cast_this_match.clear()
 	blood_pact_targets.clear()
+	dark_ascension_targets.clear()
 	curse_charges = 0
 	_draw_hand()
 

@@ -59,8 +59,8 @@ var _ball_scale: float = 1.0            # current visual scale (lerps toward tar
 var _ball_owner_name: String = ""       # current ball carrier for glow tracking
 const BALL_AERIAL_SCALE: float = 1.8    # scale when ball is in the air (TRAVELLING)
 const BALL_SCALE_LERP: float = 6.0      # how fast scale animates
-const TOKEN_LERP_SPEED: float = 22.0   # near-instant - soccer players plant, not glide
-const BALL_LERP_SPEED: float = 18.0     # ball snaps crisp - no floaty lag
+const TOKEN_LERP_SPEED: float = 10.0   # smooth glide - readable movement, no teleporting
+const BALL_LERP_SPEED: float = 14.0     # ball moves crisply but visibly
 
 # Extra balls (multiball spell)
 var _extra_ball_positions: Array = []  # [{x, y}] from snapshot

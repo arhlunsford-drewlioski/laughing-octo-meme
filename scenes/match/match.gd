@@ -68,7 +68,7 @@ func _setup_match() -> void:
 
 	player_deck = Deck.new()
 	if RunManager.run_active:
-		player_deck.initialize(RunManager.run_deck_cards.duplicate())
+		player_deck.initialize([])
 	else:
 		player_deck.initialize(CardDatabase.player_starter_deck())
 

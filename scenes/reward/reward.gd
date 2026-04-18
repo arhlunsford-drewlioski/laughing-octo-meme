@@ -49,7 +49,7 @@ func _show_match_result() -> void:
 			wins += 1
 		else:
 			losses += 1
-	progress_label.text = "Run: " + str(wins) + "W - " + str(losses) + "L  |  Deck: " + str(RunManager.run_deck_cards.size()) + " cards"
+	progress_label.text = "Run: " + str(wins) + "W - " + str(losses) + "L  |  Spells: " + str(RunManager.run_spell_deck.size())
 
 func _generate_rewards() -> void:
 	reward_choices = CardDatabase.get_random_rewards(3)

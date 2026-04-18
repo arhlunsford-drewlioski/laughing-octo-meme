@@ -131,28 +131,31 @@ static func _random_name() -> String:
 
 # ── Draft Pool Generation ────────────────────────────────────────────────────
 
-static func generate_draft_pool(count: int = 10) -> Array[GoblinData]:
+static func generate_draft_pool(count: int = 20) -> Array[GoblinData]:
 	## Generate a randomized draft pool for the start of a run.
-	## Ensures positional balance: at least 2 attackers, 2 midfielders, 2 defenders, 1 keeper.
+	## Ensures positional balance so the player can always build a viable squad.
+	## For 20-pool: 5 ATK, 5 MID, 5 DEF, 2 GK, 3 random.
 	reset_names()
 	var pool: Array[GoblinData] = []
 	var factions := FactionSystem.get_all_factions()
 
-	# Guaranteed positional balance (7 slots)
-	# 2 attackers
-	for i in 2:
+	# Guaranteed positional balance
+	var n_atk: int = maxi(2, count / 4)      # 5 for 20, 2 for 10
+	var n_mid: int = maxi(2, count / 4)      # 5 for 20, 2 for 10
+	var n_def: int = maxi(2, count / 4)      # 5 for 20, 2 for 10
+	var n_gk: int = maxi(1, count / 10)      # 2 for 20, 1 for 10
+
+	for i in n_atk:
 		var pos: String = ATTACK_POSITIONS[randi() % ATTACK_POSITIONS.size()]
 		pool.append(generate_goblin(factions[i % factions.size()], 4, 7, pos))
-	# 2 midfielders
-	for i in 2:
+	for i in n_mid:
 		var pos: String = MIDFIELD_POSITIONS[randi() % MIDFIELD_POSITIONS.size()]
 		pool.append(generate_goblin(factions[(i + 2) % factions.size()], 4, 7, pos))
-	# 2 defenders
-	for i in 2:
+	for i in n_def:
 		var pos: String = DEFENSE_POSITIONS[randi() % DEFENSE_POSITIONS.size()]
 		pool.append(generate_goblin(factions[(i + 4) % factions.size()], 4, 7, pos))
-	# 1 keeper
-	pool.append(generate_goblin(factions[randi() % factions.size()], 4, 7, "keeper"))
+	for i in n_gk:
+		pool.append(generate_goblin(factions[randi() % factions.size()], 4, 7, "keeper"))
 
 	# Fill remaining slots with random positions
 	var remaining := count - pool.size()

@@ -29,10 +29,7 @@ var tournament: TournamentData = null
 # Faction state
 var player_faction: int = 0
 
-# Persistent deck across matches
-var run_deck_cards: Array[CardData] = []
-
-# Spell deck across matches (Phase 6)
+# Spell deck across matches
 var run_spell_deck: Array[SpellData] = []
 
 # Match results history
@@ -46,7 +43,6 @@ func start_tournament(roster: Array[GoblinData]) -> void:
 	match_results.clear()
 
 	player_faction = FactionSystem.get_majority_faction(roster)
-	run_deck_cards = CardDatabase.player_starter_deck()
 	run_spell_deck = SpellDatabase.starter_deck()
 
 	tournament = TeamGenerator.generate_tournament(roster, player_faction)
@@ -287,13 +283,6 @@ func spend_gold(amount: int) -> bool:
 	gold_changed.emit(gold)
 	return true
 
-func add_reward_card(card: CardData) -> void:
-	run_deck_cards.append(card)
-
-func remove_deck_card(index: int) -> void:
-	if index >= 0 and index < run_deck_cards.size():
-		run_deck_cards.remove_at(index)
-
 func add_spell_card(spell: SpellData) -> void:
 	run_spell_deck.append(spell)
 
@@ -317,7 +306,6 @@ func reset_run() -> void:
 	run_active = false
 	gold = 0
 	player_faction = 0
-	run_deck_cards.clear()
 	run_spell_deck.clear()
 	match_results.clear()
 	tournament = null

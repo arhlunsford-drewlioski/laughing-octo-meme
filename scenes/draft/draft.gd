@@ -1,7 +1,8 @@
 extends Control
-## Pre-match draft screen. Pick 6 goblins from the full pool.
+## Pre-match draft screen. Pick 10 goblins from a pool of 20.
+## You need 6 per match, so 4 reserves for rotation, injuries, and deaths.
 
-const TEAM_SIZE: int = 6
+const TEAM_SIZE: int = 10
 const SELECTED_COLOR := Color(0.2, 0.45, 0.2, 1.0)
 const UNSELECTED_COLOR := Color(0.165, 0.141, 0.114, 1.0)
 
@@ -16,7 +17,7 @@ var goblin_panels: Dictionary = {}
 @onready var faction_label: Label = %FactionLabel
 
 func _ready() -> void:
-	full_roster = GoblinGenerator.generate_draft_pool(10)
+	full_roster = GoblinGenerator.generate_draft_pool(20)
 	start_btn.pressed.connect(_on_start_match)
 	start_btn.disabled = true
 
@@ -40,7 +41,7 @@ func _build_roster_display() -> void:
 
 func _build_goblin_panel(goblin: GoblinData) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(320, 150)
+	panel.custom_minimum_size = Vector2(280, 130)
 
 	var stylebox := StyleBoxFlat.new()
 	stylebox.bg_color = UNSELECTED_COLOR
@@ -157,6 +158,6 @@ func _update_count() -> void:
 
 func _on_start_match() -> void:
 	GameManager.selected_roster = selected.duplicate()
-	# The run roster must include the whole drafted squad, not just the opening XI.
-	RunManager.start_tournament(full_roster.duplicate())
+	# Pass only the 10 drafted goblins as the run roster (not the full 20 pool)
+	RunManager.start_tournament(selected.duplicate())
 	get_tree().change_scene_to_file("res://scenes/screens/tournament_hub.tscn")

@@ -3,7 +3,7 @@ extends Resource
 ## A spell the sorcerer can cast during matches. Replaces CardData.
 
 enum TargetType { NONE, ALLY, ENEMY, ALL_ALLIES, ALL_ENEMIES, SELF }
-enum Rarity { COMMON, UNCOMMON, RARE }
+enum Rarity { COMMON, UNCOMMON, RARE, LEGENDARY }
 
 @export var spell_name: String = ""
 @export var description: String = ""
@@ -26,6 +26,9 @@ enum Rarity { COMMON, UNCOMMON, RARE }
 
 ## If true, causes an injury to the target goblin after the match
 @export var post_match_injury: bool = false
+
+## If true, the target goblin DIES after the match (Dark Ascension)
+@export var post_match_death: bool = false
 
 # ── Shop ─────────────────────────────────────────────────────────────────────
 @export var shop_cost: int = 50

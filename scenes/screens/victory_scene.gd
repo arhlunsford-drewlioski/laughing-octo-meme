@@ -116,7 +116,7 @@ func _display_victory() -> void:
 		)
 
 	stats_label.append_text("\n[color=#" + gold_hex + "]Total goals scored: " + str(total_goals) + "[/color]\n")
-	stats_label.append_text("[color=#" + cream_hex + "]Final deck: " + str(RunManager.run_deck_cards.size()) + " cards[/color]\n")
+	stats_label.append_text("[color=#" + cream_hex + "]Final spells: " + str(RunManager.run_spell_deck.size()) + "[/color]\n")
 	stats_label.append_text("[color=#" + cream_hex + "]Gold earned: " + str(RunManager.gold) + "[/color]\n")
 
 	var p_info := FactionSystem.get_faction_info(RunManager.player_faction)

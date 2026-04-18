@@ -127,7 +127,7 @@ func _on_buy_card(index: int) -> void:
 
 func _refresh_remove_btn() -> void:
 	remove_btn.text = "Remove a Card (" + str(ShopData.REMOVE_COST) + "g)"
-	remove_btn.disabled = not shop.can_afford_remove() or RunManager.run_deck_cards.size() <= 1
+	remove_btn.disabled = not shop.can_afford_remove() or RunManager.run_spell_deck.size() <= 1
 
 func _on_remove_pressed() -> void:
 	if not shop.can_afford_remove():
@@ -141,12 +141,13 @@ func _refresh_deck_view() -> void:
 	for child in deck_row.get_children():
 		child.queue_free()
 
-	for i in range(RunManager.run_deck_cards.size()):
-		var card: CardData = RunManager.run_deck_cards[i]
-		var card_ui := CARD_UI_SCENE.instantiate()
-		deck_row.add_child(card_ui)
-		card_ui.setup(card, i)
-		card_ui.card_clicked.connect(_on_remove_card)
+	for i in range(RunManager.run_spell_deck.size()):
+		var spell: SpellData = RunManager.run_spell_deck[i]
+		var btn := Button.new()
+		btn.text = spell.spell_name + " (" + str(spell.mana_cost) + ")"
+		btn.add_theme_font_size_override("font_size", 12)
+		deck_row.add_child(btn)
+		btn.pressed.connect(_on_remove_card.bind(i))
 
 func _on_remove_card(index: int) -> void:
 	if not removing:
