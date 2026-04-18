@@ -1,9 +1,6 @@
 extends Control
 ## Post-match shop screen. Buy cards or remove cards from your deck.
 
-const CARD_UI_SCENE := preload("res://scenes/ui/card_ui.tscn")
-
-var shop: ShopData
 var removing: bool = false
 
 @onready var gold_label: Label = %GoldLabel
@@ -52,8 +49,6 @@ func _ready() -> void:
 	UITheme.style_header(item_label, 20)
 	UITheme.style_header(spell_label, 20)
 
-	shop = ShopData.new()
-	shop.generate_offerings()
 	_generate_recruits()
 	_generate_items()
 	_generate_spells()
@@ -62,14 +57,15 @@ func _ready() -> void:
 	removing = false
 
 	_refresh_gold()
-	_refresh_offerings()
 	_refresh_remove_btn()
 	_refresh_healing()
 	_refresh_recruits()
 	_refresh_items()
 	_refresh_spells()
-	tier_label.text = CardPool.get_tier_label()
-	tier_label.add_theme_color_override("font_color", UITheme.ENERGY_FILLED)
+	tier_label.text = ""
+	# Hide old card row (no more card offerings)
+	card_row.visible = false
+	shop_label.visible = false
 
 func _refresh_gold() -> void:
 	gold_label.text = str(RunManager.gold) + "g"
@@ -83,6 +79,8 @@ func _on_gold_changed(_new_gold: int) -> void:
 	_refresh_spells()
 
 func _refresh_offerings() -> void:
+	# Legacy card offerings - disabled, spells replace this
+	return
 	for child in card_row.get_children():
 		child.queue_free()
 

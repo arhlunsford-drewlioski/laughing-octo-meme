@@ -233,6 +233,7 @@ func _start_targeting(hand_index: int, mode: String) -> void:
 	_targeting_spell_index = hand_index
 	_targeting_mode = mode
 	_paused = true
+	animated_pitch._targeting_active = true
 	var spell: SpellData = _spell_system.hand[hand_index]
 
 	match mode:
@@ -249,6 +250,7 @@ func _cancel_targeting() -> void:
 	_targeting_spell_index = -1
 	_targeting_mode = ""
 	_paused = false
+	animated_pitch._targeting_active = false
 	_refresh_spell_buttons()
 
 func _cast_spell_immediate(hand_index: int) -> void:
@@ -325,6 +327,7 @@ func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
 			_targeting_spell_index = -1
 			_targeting_mode = ""
 			_paused = false
+			animated_pitch._targeting_active = false
 			_cast_spell_targeted(idx, target)
 		else:
 			_log("[color=#aaaaaa]No valid target there. Click a goblin or press ESC to cancel.[/color]")
@@ -332,7 +335,7 @@ func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
 func _find_nearest_goblin(px: float, py: float, ally: bool) -> GoblinData:
 	var formation: Formation = home_formation if ally else away_formation
 	var best: GoblinData = null
-	var best_dist: float = 0.08  # Max click distance
+	var best_dist: float = 0.15  # Max click distance (generous - tokens are big)
 	for goblin in formation.get_all():
 		if not sim.goblin_states.has(goblin):
 			continue

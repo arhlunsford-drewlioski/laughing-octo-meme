@@ -207,7 +207,8 @@ func remove_goblin_token(goblin_name: String) -> void:
 	tween.tween_property(token, "modulate", Color(1, 0.2, 0, 0), 0.4)
 	tween.chain().tween_callback(token.queue_free)
 
-var _fireball_targeting: bool = false
+var _fireball_targeting: bool = false  # legacy, kept for compatibility
+var _targeting_active: bool = false    # general targeting mode (any spell)
 
 # Fireball explosion effect
 var _explosion_active: bool = false
@@ -240,7 +241,7 @@ func play_fireball_explosion(pitch_x: float, pitch_y: float) -> void:
 	_explosion_active = true
 
 func _gui_input(event: InputEvent) -> void:
-	if _fireball_targeting and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	if (_fireball_targeting or _targeting_active) and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var local_pos: Vector2 = event.position
 		var pitch_pos: Vector2 = screen_to_pitch(local_pos)
 		pitch_clicked.emit(pitch_pos.x, pitch_pos.y)

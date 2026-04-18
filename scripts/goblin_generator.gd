@@ -172,10 +172,10 @@ static func generate_scaled_opponent_roster(faction: int, difficulty: float) -> 
 	## Group stage ~0.0-0.3, R16 ~0.4, QF ~0.6, SF ~0.8, Final ~1.0.
 	reset_names()
 
-	# Scale stat ranges by difficulty
-	var stat_min: int = clampi(int(2 + difficulty * 2), 2, 5)    # 2 -> 4
-	var stat_max: int = clampi(int(6 + difficulty * 3), 6, 9)    # 6 -> 9
-	var primary_bonus_max: int = 2 if difficulty < 0.7 else 3
+	# Scale stat ranges by difficulty (buffed - early opponents were too weak)
+	var stat_min: int = clampi(int(3 + difficulty * 2), 3, 6)    # 3 -> 6
+	var stat_max: int = clampi(int(7 + difficulty * 2), 7, 10)   # 7 -> 10
+	var primary_bonus_max: int = 2 if difficulty < 0.5 else 3
 
 	# Use faction templates for position distribution (from GoblinDatabase)
 	var templates: Dictionary = GoblinDatabase._FACTION_OPPONENTS.get(faction, GoblinDatabase._FACTION_OPPONENTS[1])
