@@ -79,60 +79,17 @@ func _on_gold_changed(_new_gold: int) -> void:
 	_refresh_spells()
 
 func _refresh_offerings() -> void:
-	# Legacy card offerings - disabled, spells replace this
-	return
-	for child in card_row.get_children():
-		child.queue_free()
-
-	if shop.offerings.is_empty():
-		var empty := Label.new()
-		empty.text = "Sold out!"
-		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		empty.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-		card_row.add_child(empty)
-		return
-
-	for i in range(shop.offerings.size()):
-		var offering: Dictionary = shop.offerings[i]
-		var card: CardData = offering["card"]
-		var price: int = offering["price"]
-
-		var container := VBoxContainer.new()
-		container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-
-		var card_ui := CARD_UI_SCENE.instantiate()
-		container.add_child(card_ui)
-		card_ui.setup(card, i)
-		card_ui.card_clicked.connect(_on_buy_card)
-
-		var price_label := Label.new()
-		price_label.text = str(price) + "g"
-		price_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		price_label.add_theme_font_size_override("font_size", 18)
-		if RunManager.gold < price:
-			price_label.add_theme_color_override("font_color", UITheme.RED)
-		else:
-			price_label.add_theme_color_override("font_color", UITheme.GOLD)
-		container.add_child(price_label)
-
-		card_row.add_child(container)
-
-func _on_buy_card(index: int) -> void:
-	if removing:
-		return
-	if shop.buy_card(index):
-		_refresh_offerings()
+	pass  # Legacy card system removed - spells section handles deck building
 
 func _refresh_remove_btn() -> void:
-	remove_btn.text = "Remove a Card (" + str(ShopData.REMOVE_COST) + "g)"
-	remove_btn.disabled = not shop.can_afford_remove() or RunManager.run_spell_deck.size() <= 1
+	remove_btn.text = "Remove Spell (20g)"
+	remove_btn.disabled = RunManager.gold < 20 or RunManager.run_spell_deck.size() <= 1
 
 func _on_remove_pressed() -> void:
-	if not shop.can_afford_remove():
+	if RunManager.gold < 20 or RunManager.run_spell_deck.size() <= 1:
 		return
 	removing = true
 	deck_panel.visible = true
-	shop_label.text = "Tap a card to remove it"
 	_refresh_deck_view()
 
 func _refresh_deck_view() -> void:
@@ -143,18 +100,19 @@ func _refresh_deck_view() -> void:
 		var spell: SpellData = RunManager.run_spell_deck[i]
 		var btn := Button.new()
 		btn.text = spell.spell_name + " (" + str(spell.mana_cost) + ")"
-		btn.add_theme_font_size_override("font_size", 12)
+		btn.add_theme_font_size_override("font_size", 14)
+		UITheme.style_button(btn, false)
 		deck_row.add_child(btn)
 		btn.pressed.connect(_on_remove_card.bind(i))
 
 func _on_remove_card(index: int) -> void:
 	if not removing:
 		return
-	if shop.remove_card(index):
+	if index >= 0 and index < RunManager.run_spell_deck.size():
+		RunManager.remove_spell_card(index)
+		RunManager.spend_gold(20)
 		removing = false
 		deck_panel.visible = false
-		shop_label.text = "SHOP"
-		_refresh_offerings()
 		_refresh_remove_btn()
 
 func _on_deck_close() -> void:

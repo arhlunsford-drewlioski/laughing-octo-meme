@@ -415,6 +415,9 @@ func tick() -> Dictionary:
 	# 7. Move ALL goblins toward their ideal positions (arrival behavior)
 	_move_all_goblins()
 
+	# 7b. Proximity challenge: any opponent near the ball carrier can contest
+	_check_proximity_challenges()
+
 	# 8. Update ball position if controlled
 	if ball.state == Ball.BallState.CONTROLLED and ball.owner and goblin_states.has(ball.owner):
 		var owner_gs: Dictionary = goblin_states[ball.owner]
@@ -1499,59 +1502,37 @@ func _update_ideal_positions() -> void:
 			continue
 
 		# ── STATE 6: FORMATION POSITIONING ──
-		# Simple and predictable: every goblin is HARD CLAMPED to their zone rect.
-		# They shift within the rect toward the ball (slide as a unit).
-		# The presser gets an expanded rect that reaches toward the ball.
-		# Nobody leaves their zone. Formation always looks like football.
+		# Pure lerp: target = lerp(home_position, ball_position, weight)
+		# No zone rects. No clamping. The lerp weight IS the leash.
+		# This is what FM and every shipped 2D football game uses.
 		if goblin.position == "keeper":
 			gs["ideal_x"] = _gf(gs, "home_x")
 			gs["ideal_y"] = clampf(lerpf(0.5, ball.y, 0.25), 0.38, 0.62)
 		else:
-			var in_poss: bool = my_team_has_ball and not is_loose
-			var is_left: bool = _gb(gs, "is_left_flank")
-			var rect: Array = PositionDatabase.get_zone_rect_flipped(
-				goblin.position, in_poss, is_home, is_left)
+			var home_x: float = _gf(gs, "home_x")
+			var home_y: float = _gf(gs, "home_y")
 
-			# PRESSER: expand zone rect toward the ball so they can chase
-			var cur_role: int = coordinator.get_role(goblin)
-			if cur_role == TeamCoordinator.Role.PRESSER and not my_team_has_ball:
-				# Extend the rect boundary toward the ball position
-				var rx0: float = float(rect[0])
-				var rx1: float = float(rect[1])
-				var ry0: float = float(rect[2])
-				var ry1: float = float(rect[3])
-				# Expand x toward ball (up to 0.25 extension)
-				if ball.x < rx0:
-					rx0 = maxf(ball.x - 0.02, 0.02)
-				elif ball.x > rx1:
-					rx1 = minf(ball.x + 0.02, 0.98)
-				# Expand y toward ball (up to 0.15 extension)
-				if ball.y < ry0:
-					ry0 = maxf(ball.y - 0.02, 0.05)
-				elif ball.y > ry1:
-					ry1 = minf(ball.y + 0.02, 0.95)
-				rect = [rx0, rx1, ry0, ry1]
+			# Weight determines how much the goblin shifts toward the ball
+			# Higher = closer to ball, lower = stays near home position
+			var weight: float
+			if my_team_has_ball and not is_loose:
+				# IN POSSESSION: hold shape, create passing options
+				weight = 0.10
+			else:
+				# DEFENDING: compress toward ball as a team
+				var pos_zone: String = PositionDatabase.get_zone(goblin.position)
+				match pos_zone:
+					"defense":
+						weight = 0.20  # defenders shift slightly
+					"midfield":
+						weight = 0.30  # midfielders shift more
+					"attack":
+						weight = 0.15  # attackers stay high, don't track back much
+					_:
+						weight = 0.20
 
-			var cx: float = (float(rect[0]) + float(rect[1])) * 0.5
-			var cy: float = (float(rect[2]) + float(rect[3])) * 0.5
-
-			# Ball tracking: shift within zone toward the ball
-			var track_x: float = clampf(ball.x, 0.10, 0.90)
-			var track_y: float = clampf(ball.y, 0.12, 0.88)
-			var x_lerp: float = 0.15 if in_poss else 0.30
-			var y_lerp: float = 0.10 if in_poss else 0.25
-
-			# Presser tracks ball much more aggressively
-			if cur_role == TeamCoordinator.Role.PRESSER and not my_team_has_ball:
-				x_lerp = 0.70
-				y_lerp = 0.60
-
-			var ix: float = lerpf(cx, track_x, x_lerp)
-			var iy: float = lerpf(cy, track_y, y_lerp)
-
-			# HARD CLAMP to zone rect - the formation leash
-			gs["ideal_x"] = clampf(ix, float(rect[0]), float(rect[1]))
-			gs["ideal_y"] = clampf(iy, float(rect[2]), float(rect[3]))
+			gs["ideal_x"] = lerpf(home_x, ball.x, weight)
+			gs["ideal_y"] = lerpf(home_y, ball.y, weight)
 
 		# Sprint back if far from target (recovery runs)
 		var dist_to_target: float = sqrt(
@@ -1767,6 +1748,47 @@ func _movement_profile(goblin: GoblinData, gs: Dictionary, dx: float, dy: float,
 		"slowdown_radius": slowdown_radius,
 	}
 
+func _check_proximity_challenges() -> void:
+	## Every tick: any opponent close to the ball carrier gets a tackle contest.
+	## This is the main mechanic for possession changes in real football games.
+	if ball.state != Ball.BallState.CONTROLLED or ball.owner == null:
+		return
+	if not goblin_states.has(ball.owner):
+		return
+	var carrier: GoblinData = ball.owner
+	var carrier_gs: Dictionary = goblin_states[carrier]
+	var cx: float = _gf(carrier_gs, "x")
+	var cy: float = _gf(carrier_gs, "y")
+	var is_home: bool = _gb(carrier_gs, "is_home")
+
+	# Check all opponents for proximity
+	var opp_formation: Formation = away_formation if is_home else home_formation
+	for opp in opp_formation.get_all():
+		if not goblin_states.has(opp):
+			continue
+		var opp_gs: Dictionary = goblin_states[opp]
+		if _gf(opp_gs, "cooldown") > 0.0:
+			continue
+		if opp.position == "keeper":
+			continue
+		var dist: float = _dist(_gf(opp_gs, "x"), _gf(opp_gs, "y"), cx, cy)
+		if dist < CHALLENGE_RANGE:
+			# Proximity contest: defender vs carrier
+			var def_stat: float = opp.get_stat("defense") + opp.get_stat("strength") * 0.4
+			var carry_stat: float = carrier.get_stat("speed") * 0.6 + carrier.get_stat("strength") * 0.4
+			var result: float = _stat_contest(def_stat, carry_stat,
+				float(opp.get_stat("chaos")), float(carrier.get_stat("chaos")))
+			if result > 0.05:  # defender wins
+				_clear_ball_intent()
+				ball.set_loose(cx, cy)
+				_tick_events.append({"type": "dispossessed", "goblin": carrier.goblin_name, "by": opp.goblin_name})
+				opp_gs["cooldown"] = 0.3
+				_roll_tackle_injury(opp, carrier, false)
+				return  # one challenge per tick max
+			else:
+				# Carrier keeps ball but defender is committed
+				opp_gs["cooldown"] = 0.4
+
 func _move_all_goblins() -> void:
 	## Velocity-based movement: goblins accelerate/decelerate toward ideal_x/ideal_y
 	## with direction commitment to prevent twitch-corrections.
@@ -1881,39 +1903,7 @@ func _move_all_goblins() -> void:
 		gs["vel_x"] = vel_x
 		gs["vel_y"] = vel_y
 
-		# HARD ZONE CLAMP: goblins physically cannot leave their zone rect
-		# Exempt: ball carrier, pass receiver, loose ball chaser
-		if goblin.position != "keeper" and ball.owner != goblin:
-			var is_receiver: bool = ball.state == Ball.BallState.TRAVELLING and _ball_intent.get("target_goblin", null) == goblin
-			var is_chaser: bool = coordinator.get_role(goblin) == TeamCoordinator.Role.LOOSE_CHASER
-			if not is_receiver and not is_chaser:
-				var zr_in_poss: bool = false
-				if ball.owner and goblin_states.has(ball.owner):
-					zr_in_poss = _gb(goblin_states[ball.owner], "is_home") == _gb(gs, "is_home")
-				var zr_rect: Array = PositionDatabase.get_zone_rect_flipped(
-					goblin.position, zr_in_poss, _gb(gs, "is_home"), _gb(gs, "is_left_flank"))
-				# Presser gets expanded rect toward ball
-				if coordinator.get_role(goblin) == TeamCoordinator.Role.PRESSER and not zr_in_poss:
-					var prx0: float = float(zr_rect[0])
-					var prx1: float = float(zr_rect[1])
-					var pry0: float = float(zr_rect[2])
-					var pry1: float = float(zr_rect[3])
-					if ball.x < prx0:
-						prx0 = maxf(ball.x - 0.02, 0.02)
-					elif ball.x > prx1:
-						prx1 = minf(ball.x + 0.02, 0.98)
-					if ball.y < pry0:
-						pry0 = maxf(ball.y - 0.02, 0.05)
-					elif ball.y > pry1:
-						pry1 = minf(ball.y + 0.02, 0.95)
-					zr_rect = [prx0, prx1, pry0, pry1]
-				# Smooth zone pull instead of hard snap (prevents teleporting)
-				var zx: float = _gf(gs, "x")
-				var zy: float = _gf(gs, "y")
-				var zclamp_x: float = clampf(zx, float(zr_rect[0]), float(zr_rect[1]))
-				var zclamp_y: float = clampf(zy, float(zr_rect[2]), float(zr_rect[3]))
-				gs["x"] = lerpf(zx, zclamp_x, 0.3)
-				gs["y"] = lerpf(zy, zclamp_y, 0.3)
+		# No zone clamping - lerp weight in STATE 6 is the only leash
 
 		# Update facing: moving = face movement direction, still = face the ball
 		if absf(vel_x) > 0.001:
