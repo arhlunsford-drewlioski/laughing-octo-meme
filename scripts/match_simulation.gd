@@ -1373,6 +1373,158 @@ func cast_healing_wave(team_index: int, targets: Array) -> bool:
 			_tick_events.append({"type": "healed", "goblin": goblin.goblin_name})
 	return true
 
+func cast_lightning_bolt(team_index: int, target_x: float, target_y: float) -> bool:
+	## Precision kill - hits ONE goblin closest to target point. Instant kill.
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "lightning_bolt", "team": team_name, "x": target_x, "y": target_y})
+	var best: GoblinData = null
+	var best_dist: float = 0.08  # must be close to the strike point
+	for g in goblin_states:
+		var gs: Dictionary = goblin_states[g]
+		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
+		if d < best_dist:
+			best_dist = d
+			best = g
+	if best == null:
+		return false
+	if is_shielded.call(best):
+		_tick_events.append({"type": "shield_block", "goblin": best.goblin_name})
+		return true
+	best.apply_injury(GoblinData.InjuryState.DEAD)
+	_tick_events.append({"type": "lightning_kill", "goblin": best.goblin_name})
+	_pending_removals.append(best)
+	return true
+
+func cast_meteor(team_index: int, target_x: float, target_y: float) -> bool:
+	## Massive AoE - much bigger than fireball. Kills anyone inside.
+	const METEOR_RADIUS: float = 0.18
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "meteor", "team": team_name, "x": target_x, "y": target_y})
+	for g in goblin_states.keys():
+		if not goblin_states.has(g):
+			continue
+		var gs: Dictionary = goblin_states[g]
+		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
+		if d > METEOR_RADIUS:
+			continue
+		if is_shielded.call(g):
+			_tick_events.append({"type": "shield_block", "goblin": g.goblin_name})
+			continue
+		if d < METEOR_RADIUS * 0.5:
+			# Inner radius: instant kill
+			g.apply_injury(GoblinData.InjuryState.DEAD)
+			_tick_events.append({"type": "meteor_kill", "goblin": g.goblin_name})
+			_pending_removals.append(g)
+		else:
+			# Outer radius: major injury
+			g.apply_injury(GoblinData.InjuryState.MAJOR)
+			_tick_events.append({"type": "meteor_hit", "goblin": g.goblin_name})
+	return true
+
+func cast_earthquake(team_index: int) -> bool:
+	## All goblins stumble (brief stun), ball goes loose.
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "earthquake", "team": team_name})
+	for g in goblin_states:
+		var gs: Dictionary = goblin_states[g]
+		gs["cooldown"] = 0.8  # brief stun - can't act for 0.8s
+		gs["vel_x"] = 0.0
+		gs["vel_y"] = 0.0
+	if ball.state == Ball.BallState.CONTROLLED:
+		_clear_ball_intent()
+		ball.set_loose(ball.x, ball.y)
+	return true
+
+func cast_rot_curse(team_index: int, target_goblin: GoblinData) -> bool:
+	## Target takes damage over 20 seconds. Dies if not healed.
+	if not goblin_states.has(target_goblin):
+		return false
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "rot_curse", "team": team_name, "goblin": target_goblin.goblin_name})
+	# Apply heavy stat debuff that kills if unhealed
+	_apply_buff(target_goblin, "health", -5, 200, "rot_curse")
+	_apply_buff(target_goblin, "strength", -3, 200, "rot_curse")
+	return true
+
+func cast_heal(team_index: int, target_goblin: GoblinData) -> bool:
+	## Cure one goblin's injury.
+	if not goblin_states.has(target_goblin):
+		return false
+	var team_name: String = "home" if team_index == 0 else "away"
+	if target_goblin.injury != GoblinData.InjuryState.HEALTHY:
+		target_goblin.heal_injury()
+		_tick_events.append({"type": "healed", "team": team_name, "goblin": target_goblin.goblin_name})
+		return true
+	return false
+
+func cast_resurrect(team_index: int) -> bool:
+	## Revive the most recently dead goblin. Half stats. This match only.
+	var formation: Formation = home_formation if team_index == 0 else away_formation
+	var target: GoblinData = null
+	for g in formation.get_all():
+		if not g.is_alive() and target == null:
+			target = g
+			break
+	if target == null:
+		return false
+	# Bring back with minor injury status (half effective)
+	target.injury = GoblinData.InjuryState.MINOR
+	_tick_events.append({"type": "resurrect", "goblin": target.goblin_name})
+	return true
+
+func cast_teleport(team_index: int, target_goblin: GoblinData, dest_x: float, dest_y: float) -> bool:
+	## Move a goblin to anywhere on the pitch instantly.
+	if not goblin_states.has(target_goblin):
+		return false
+	var gs: Dictionary = goblin_states[target_goblin]
+	gs["x"] = clampf(dest_x, 0.02, 0.98)
+	gs["y"] = clampf(dest_y, 0.05, 0.95)
+	gs["ideal_x"] = gs["x"]
+	gs["ideal_y"] = gs["y"]
+	gs["vel_x"] = 0.0
+	gs["vel_y"] = 0.0
+	_tick_events.append({"type": "teleport", "goblin": target_goblin.goblin_name})
+	return true
+
+func cast_rage_potion(team_index: int, target_goblin: GoblinData) -> bool:
+	## Massive stat boost but attacks everyone.
+	if not goblin_states.has(target_goblin):
+		return false
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "rage_potion", "team": team_name, "goblin": target_goblin.goblin_name})
+	_apply_buff(target_goblin, "shooting", 5, 150, "rage_potion")
+	_apply_buff(target_goblin, "speed", 5, 150, "rage_potion")
+	_apply_buff(target_goblin, "strength", 5, 150, "rage_potion")
+	_apply_buff(target_goblin, "chaos", 10, 150, "rage_potion")
+	return true
+
+func cast_mass_protect(team_index: int) -> bool:
+	## All your goblins invincible for 5 seconds.
+	var formation: Formation = home_formation if team_index == 0 else away_formation
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "mass_protect", "team": team_name})
+	# Shields are tracked in spell_system - viewer applies them
+	return true
+
+func cast_swap(team_index: int, goblin_a: GoblinData, goblin_b: GoblinData) -> bool:
+	## Switch positions of two goblins instantly.
+	if not goblin_states.has(goblin_a) or not goblin_states.has(goblin_b):
+		return false
+	var gs_a: Dictionary = goblin_states[goblin_a]
+	var gs_b: Dictionary = goblin_states[goblin_b]
+	var ax: float = _gf(gs_a, "x")
+	var ay: float = _gf(gs_a, "y")
+	gs_a["x"] = _gf(gs_b, "x")
+	gs_a["y"] = _gf(gs_b, "y")
+	gs_b["x"] = ax
+	gs_b["y"] = ay
+	gs_a["ideal_x"] = gs_a["x"]
+	gs_a["ideal_y"] = gs_a["y"]
+	gs_b["ideal_x"] = gs_b["x"]
+	gs_b["ideal_y"] = gs_b["y"]
+	_tick_events.append({"type": "swap", "a": goblin_a.goblin_name, "b": goblin_b.goblin_name})
+	return true
+
 func get_blood_pact_targets() -> Array[GoblinData]:
 	return _blood_pact_targets
 

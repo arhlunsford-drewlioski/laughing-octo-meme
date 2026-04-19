@@ -41,6 +41,10 @@ var _wobble_intensity: float = 0.06  # how much the reticle drifts
 # Opponent casting UI
 var _counter_btn: Button = null
 var _opponent_cast_label: Label = null
+var _sorcerer_portrait: PanelContainer = null
+var _sorcerer_portrait_icon: Label = null
+var _sorcerer_portrait_name: Label = null
+var _sorcerer_portrait_mana: Label = null
 
 # Possession tracking
 var _home_possession_ticks: int = 0
@@ -115,6 +119,56 @@ func _ready() -> void:
 	add_child(_opponent_cast_label)
 	_opponent_cast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_opponent_cast_label.position.y = 60
+
+	# Opponent sorcerer portrait (top-right)
+	_sorcerer_portrait = PanelContainer.new()
+	var port_style := StyleBoxFlat.new()
+	port_style.bg_color = Color(0.18, 0.08, 0.1, 0.92)
+	port_style.border_color = Color(0.9, 0.3, 0.3)
+	port_style.border_width_left = 2
+	port_style.border_width_right = 2
+	port_style.border_width_top = 2
+	port_style.border_width_bottom = 2
+	port_style.corner_radius_top_left = 6
+	port_style.corner_radius_top_right = 6
+	port_style.corner_radius_bottom_left = 6
+	port_style.corner_radius_bottom_right = 6
+	port_style.content_margin_left = 10
+	port_style.content_margin_right = 10
+	port_style.content_margin_top = 6
+	port_style.content_margin_bottom = 6
+	_sorcerer_portrait.add_theme_stylebox_override("panel", port_style)
+
+	var port_vbox := VBoxContainer.new()
+	port_vbox.add_theme_constant_override("separation", 2)
+	_sorcerer_portrait.add_child(port_vbox)
+
+	var port_header := HBoxContainer.new()
+	port_header.add_theme_constant_override("separation", 8)
+	port_vbox.add_child(port_header)
+
+	_sorcerer_portrait_icon = Label.new()
+	_sorcerer_portrait_icon.text = "?"
+	_sorcerer_portrait_icon.add_theme_font_size_override("font_size", 28)
+	port_header.add_child(_sorcerer_portrait_icon)
+
+	_sorcerer_portrait_name = Label.new()
+	_sorcerer_portrait_name.text = "RIVAL SORCERER"
+	_sorcerer_portrait_name.add_theme_font_size_override("font_size", 14)
+	_sorcerer_portrait_name.add_theme_color_override("font_color", Color(1.0, 0.7, 0.4))
+	_sorcerer_portrait_name.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	port_header.add_child(_sorcerer_portrait_name)
+
+	_sorcerer_portrait_mana = Label.new()
+	_sorcerer_portrait_mana.text = "MANA: 0/10"
+	_sorcerer_portrait_mana.add_theme_font_size_override("font_size", 12)
+	_sorcerer_portrait_mana.add_theme_color_override("font_color", Color(0.7, 0.7, 0.85))
+	port_vbox.add_child(_sorcerer_portrait_mana)
+
+	add_child(_sorcerer_portrait)
+	_sorcerer_portrait.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_sorcerer_portrait.position.x -= 260
+	_sorcerer_portrait.position.y = 60
 
 	animated_pitch.pitch_clicked.connect(_on_pitch_clicked)
 	animated_pitch.goblin_token_clicked.connect(_on_goblin_token_clicked)
@@ -377,6 +431,17 @@ func _update_sorcerer_ui() -> void:
 	else:
 		_opponent_cast_label.visible = false
 	_counter_btn.visible = false
+
+	# Update sorcerer portrait
+	if _sorcerer_portrait:
+		var arch: Dictionary = _spell_system.opponent_archetype
+		_sorcerer_portrait_icon.text = str(arch.get("icon", "?"))
+		_sorcerer_portrait_name.text = str(arch.get("name", _spell_system.opponent_archetype_name)).to_upper()
+		var opp_mana_int: int = int(_spell_system.opponent_mana)
+		_sorcerer_portrait_mana.text = "MANA: %d/10" % opp_mana_int
+		if arch.has("color"):
+			var arch_color: Color = arch["color"]
+			_sorcerer_portrait_name.add_theme_color_override("font_color", arch_color)
 
 	animated_pitch.set_active_domes(_spell_system.get_active_domes_visuals())
 
@@ -648,6 +713,44 @@ func _resolve_pending_spell(pending: Dictionary) -> void:
 			sim.cast_chain_lightning(team_index, pending.get("targets", []))
 		"healing_wave":
 			sim.cast_healing_wave(team_index, pending.get("targets", []))
+		"lightning_bolt":
+			var lx: float = float(pending.get("x", 0.5))
+			var ly: float = float(pending.get("y", 0.5))
+			sim.cast_lightning_bolt(team_index, lx, ly)
+			animated_pitch.play_fireball_explosion(lx, ly)
+		"meteor":
+			var mx: float = float(pending.get("x", 0.5))
+			var my: float = float(pending.get("y", 0.5))
+			sim.cast_meteor(team_index, mx, my)
+			animated_pitch.play_fireball_explosion(mx, my)
+		"earthquake":
+			sim.cast_earthquake(team_index)
+		"rot_curse":
+			var tgt_rot: GoblinData = pending.get("goblin", null)
+			if tgt_rot:
+				sim.cast_rot_curse(team_index, tgt_rot)
+		"heal":
+			var tgt_heal: GoblinData = pending.get("goblin", null)
+			if tgt_heal:
+				sim.cast_heal(team_index, tgt_heal)
+		"resurrect":
+			sim.cast_resurrect(team_index)
+		"teleport":
+			var tgt_tel: GoblinData = pending.get("goblin", null)
+			if tgt_tel:
+				sim.cast_teleport(team_index, tgt_tel, float(pending.get("x", 0.5)), float(pending.get("y", 0.5)))
+		"rage_potion":
+			var tgt_rage: GoblinData = pending.get("goblin", null)
+			if tgt_rage:
+				sim.cast_rage_potion(team_index, tgt_rage)
+		"mass_protect":
+			sim.cast_mass_protect(team_index)
+			# Apply dome to all our goblins
+			var formation: Formation = home_formation if team_index == 0 else away_formation
+			for g in formation.get_all():
+				if sim.goblin_states.has(g):
+					var gs: Dictionary = sim.goblin_states[g]
+					_spell_system.apply_dome(team_index, float(gs["x"]), float(gs["y"]))
 
 	var snapshot := sim._build_snapshot()
 	_apply_director(snapshot)

@@ -15,6 +15,7 @@ var mana: float = 0.0
 
 var opponent_hand: Array[SpellData] = []
 var opponent_mana: float = 0.0
+var opponent_archetype: Dictionary = {}  # the archetype info for this match
 var opponent_archetype_name: String = "RIVAL SORCERER"
 var opponent_casting: bool = false
 var opponent_cast_ready: bool = false
@@ -93,49 +94,19 @@ func _draw_opponent_hand(spells: Array[SpellData]) -> void:
 			opponent_hand.append(spell)
 
 func _roll_opponent_profile() -> Dictionary:
-	match randi() % 3:
-		0:
-			return {
-				"name": "THE PYROMANIAC",
-				"spells": [
-					SpellDatabase.fireball(),
-					SpellDatabase.fireball(),
-					SpellDatabase.fireball(),
-					SpellDatabase.chain_lightning(),
-					SpellDatabase.haste(),
-				],
-				"cast_chance": 0.065,
-				"cooldown_min": 3.0,
-				"cooldown_max": 5.0,
-			}
-		1:
-			return {
-				"name": "THE PROTECTOR",
-				"spells": [
-					SpellDatabase.shield_dome(),
-					SpellDatabase.shield_dome(),
-					SpellDatabase.healing_wave(),
-					SpellDatabase.healing_wave(),
-					SpellDatabase.fireball(),
-				],
-				"cast_chance": 0.045,
-				"cooldown_min": 4.5,
-				"cooldown_max": 7.0,
-			}
-		_:
-			return {
-				"name": "THE STORM CALLER",
-				"spells": [
-					SpellDatabase.chain_lightning(),
-					SpellDatabase.chain_lightning(),
-					SpellDatabase.fireball(),
-					SpellDatabase.shield_dome(),
-					SpellDatabase.healing_wave(),
-				],
-				"cast_chance": 0.055,
-				"cooldown_min": 3.5,
-				"cooldown_max": 5.5,
-			}
+	## Pick one of the 10 archetypes from SorcererArchetypes.
+	var archetype: Dictionary = SorcererArchetypes.random_archetype()
+	opponent_archetype = archetype
+	# Convert archetype data into profile format expected by this system
+	# Aggression -> cast_chance + cooldown
+	var aggression: float = float(archetype.get("aggression", 0.5))
+	return {
+		"name": archetype.get("name", "RIVAL SORCERER").to_upper(),
+		"spells": archetype.get("spells", []),
+		"cast_chance": 0.03 + aggression * 0.05,  # 0.03 - 0.08
+		"cooldown_min": 6.0 - aggression * 3.0,   # 3.0 - 6.0
+		"cooldown_max": 8.0 - aggression * 3.0,   # 5.0 - 8.0
+	}
 
 func tick() -> void:
 	mana = minf(mana + MANA_REGEN_PER_TICK, MAX_MANA)
@@ -264,16 +235,46 @@ func _build_opponent_option(spell: SpellData, home_formation: Formation, away_fo
 	match spell.special_effect:
 		"fireball":
 			return _pick_cluster_target(home_formation.get_all(), goblin_states, true)
+		"lightning_bolt":
+			return _pick_chain_target(home_formation.get_all(), goblin_states, true)
+		"meteor":
+			return _pick_cluster_target(home_formation.get_all(), goblin_states, true)
+		"earthquake":
+			return {"x": 0.5, "y": 0.5, "score": 2.0}
 		"chain_lightning":
+			return _pick_chain_target(home_formation.get_all(), goblin_states, true)
+		"rot_curse":
 			return _pick_chain_target(home_formation.get_all(), goblin_states, true)
 		"shield_dome":
 			return _pick_support_cluster(away_formation.get_all(), goblin_states, false)
+		"mass_protect":
+			return {"x": 0.5, "y": 0.5, "score": 2.5}
+		"heal":
+			return _pick_heal_target(away_formation.get_all(), goblin_states)
 		"healing_wave":
 			return _pick_heal_target(away_formation.get_all(), goblin_states)
+		"resurrect":
+			return {"x": 0.5, "y": 0.5, "score": 1.8}
+		"counter_spell":
+			return {"x": 0.5, "y": 0.5, "score": 0.5}
+		"teleport":
+			return _pick_support_cluster(away_formation.get_all(), goblin_states, false)
+		"clone":
+			return _pick_striker_target(away_formation.get_all(), goblin_states)
+		"mind_control":
+			return _pick_striker_target(home_formation.get_all(), goblin_states)
+		"swap":
+			return _pick_chain_target(home_formation.get_all(), goblin_states, false)
+		"rage_potion":
+			return _pick_striker_target(away_formation.get_all(), goblin_states)
 		"haste":
 			return {"x": 0.72, "y": 0.5, "score": 1.2}
 		"hex":
 			return _pick_chain_target(home_formation.get_all(), goblin_states, true)
+		"war_cry":
+			return {"x": 0.5, "y": 0.5, "score": 1.0}
+		"blood_pact":
+			return _pick_striker_target(away_formation.get_all(), goblin_states)
 		"dark_surge":
 			return _pick_striker_target(away_formation.get_all(), goblin_states)
 	return {}
