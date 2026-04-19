@@ -215,7 +215,11 @@ var _wobble_reticle_active: bool = false
 var _wobble_reticle_pos: Vector2 = Vector2.ZERO  # pitch coordinates
 
 # Shield dome visuals: {GoblinData: true}
-var _shielded_tokens: Dictionary = {}
+var _active_domes: Array[Dictionary] = []
+
+# Visible spell effects
+var _spell_projectiles: Array[Dictionary] = []
+var _spell_chains: Array[Dictionary] = []
 
 # Fireball explosion effect
 var _explosion_active: bool = false
@@ -256,6 +260,43 @@ func play_fireball_explosion(pitch_x: float, pitch_y: float) -> void:
 	_explosion_time = 0.0
 	_explosion_active = true
 
+func set_active_domes(domes: Array[Dictionary]) -> void:
+	_active_domes = domes.duplicate(true)
+	queue_redraw()
+
+func launch_spell_projectile(spell_type: String, from_home: bool, target_x: float, target_y: float) -> void:
+	var start_pitch := Vector2(-0.04, 0.86) if from_home else Vector2(1.04, 0.14)
+	var target_pitch := Vector2(target_x, target_y)
+	var color := Color(1.0, 0.45, 0.12) if spell_type == "fireball" else Color(0.35, 0.85, 1.0)
+	var radius: float = 8.0 if spell_type == "fireball" else 6.0
+	var arc_height: float = 70.0 if spell_type == "fireball" else 30.0
+	var duration: float = 2.35 if spell_type == "fireball" else 0.55
+	_spell_projectiles.append({
+		"type": spell_type,
+		"start_pitch": start_pitch,
+		"end_pitch": target_pitch,
+		"progress": 0.0,
+		"duration": duration,
+		"arc_height": arc_height,
+		"color": color,
+		"radius": radius,
+	})
+	queue_redraw()
+
+func play_spell_chain(pitch_points: Array, chain_type: String) -> void:
+	if pitch_points.size() < 2:
+		return
+	var points: Array[Vector2] = []
+	for point in pitch_points:
+		points.append(_pitch_pos(point.x, point.y))
+	_spell_chains.append({
+		"type": chain_type,
+		"points": points,
+		"ttl": 0.42 if chain_type == "lightning" else 0.55,
+		"duration": 0.42 if chain_type == "lightning" else 0.55,
+	})
+	queue_redraw()
+
 func _gui_input(event: InputEvent) -> void:
 	if (_fireball_targeting or _targeting_active) and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var local_pos: Vector2 = event.position
@@ -276,7 +317,19 @@ func set_opponent_targeting(enabled: bool) -> void:
 
 func _on_target_token_input(event: InputEvent, token: Control) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		get_viewport().set_input_as_handled()
 		goblin_token_clicked.emit(token.goblin_data.goblin_name)
+
+func set_team_targeting(player_team: bool, enabled: bool) -> void:
+	var tokens: Array[Control] = _player_tokens if player_team else _opponent_tokens
+	for token in tokens:
+		token.set_targetable(enabled)
+		if enabled:
+			if not token.gui_input.is_connected(_on_target_token_input):
+				token.gui_input.connect(_on_target_token_input.bind(token))
+		else:
+			if token.gui_input.is_connected(_on_target_token_input):
+				token.gui_input.disconnect(_on_target_token_input)
 
 func get_zone_center(zone: String, is_player: bool) -> Vector2:
 	## Get the center point of a zone.
@@ -408,6 +461,29 @@ func _process(delta: float) -> void:
 			position = _screen_shake
 		queue_redraw()
 
+	var spell_dirty: bool = false
+	for i in range(_spell_projectiles.size() - 1, -1, -1):
+		var projectile: Dictionary = _spell_projectiles[i]
+		var duration: float = maxf(float(projectile.get("duration", 0.5)), 0.01)
+		projectile["progress"] = minf(float(projectile.get("progress", 0.0)) + delta / duration, 1.0)
+		if float(projectile["progress"]) >= 1.0:
+			_spell_projectiles.remove_at(i)
+		else:
+			_spell_projectiles[i] = projectile
+		spell_dirty = true
+
+	for i in range(_spell_chains.size() - 1, -1, -1):
+		var chain: Dictionary = _spell_chains[i]
+		chain["ttl"] = float(chain.get("ttl", 0.0)) - delta
+		if float(chain["ttl"]) <= 0.0:
+			_spell_chains.remove_at(i)
+		else:
+			_spell_chains[i] = chain
+		spell_dirty = true
+
+	if spell_dirty:
+		queue_redraw()
+
 func _process_snapshot_lerp(delta: float) -> void:
 	## Single-stage interpolation keeps motion readable and avoids the
 	## "pushed around by waves" look from double smoothing.
@@ -483,6 +559,8 @@ func _draw() -> void:
 	_draw_extra_balls()
 	_draw_haste_glow()
 	_draw_wobble_reticle()
+	_draw_spell_projectiles()
+	_draw_spell_chains()
 	_draw_shield_domes()
 	_draw_explosion()
 
@@ -503,17 +581,66 @@ func _draw_wobble_reticle() -> void:
 	draw_line(center + Vector2(0, 6), center + Vector2(0, 15), color, 2.0)
 
 func _draw_shield_domes() -> void:
-	# Draw blue bubble around shielded tokens
-	for token in _player_tokens + _opponent_tokens:
-		if not is_instance_valid(token):
+	for dome in _active_domes:
+		var center := _pitch_pos(float(dome.get("x", 0.5)), float(dome.get("y", 0.5)))
+		var radius := float(dome.get("radius", 0.12)) * _pitch_rect.size.x
+		var pulse: float = 0.55 + sin(Time.get_ticks_msec() * 0.005) * 0.2
+		draw_circle(center, radius, Color(0.18, 0.65, 1.0, 0.08))
+		draw_arc(center, radius, 0, TAU, 48, Color(0.35, 0.82, 1.0, pulse), 3.0)
+		draw_arc(center, radius * 0.75, 0, TAU, 32, Color(0.6, 0.9, 1.0, pulse * 0.6), 1.5)
+
+func _draw_spell_projectiles() -> void:
+	for projectile in _spell_projectiles:
+		var start_pitch: Vector2 = projectile.get("start_pitch", Vector2.ZERO)
+		var end_pitch: Vector2 = projectile.get("end_pitch", Vector2(0.5, 0.5))
+		var start: Vector2 = _pitch_pos(start_pitch.x, start_pitch.y)
+		var finish: Vector2 = _pitch_pos(end_pitch.x, end_pitch.y)
+		var t: float = float(projectile.get("progress", 0.0))
+		var pos: Vector2 = start.lerp(finish, t)
+		pos.y -= sin(t * PI) * float(projectile.get("arc_height", 50.0))
+		var color: Color = projectile.get("color", Color.WHITE)
+		var radius: float = float(projectile.get("radius", 6.0))
+		var spell_type: String = str(projectile.get("type", ""))
+		if spell_type == "fireball":
+			var arc_points: PackedVector2Array = PackedVector2Array()
+			for step in range(13):
+				var sample_t: float = float(step) / 12.0
+				var sample_pos: Vector2 = start.lerp(finish, sample_t)
+				sample_pos.y -= sin(sample_t * PI) * float(projectile.get("arc_height", 50.0))
+				arc_points.append(sample_pos)
+			draw_polyline(arc_points, Color(color.r, color.g, color.b, 0.18), 2.0)
+			var pulse: float = 0.75 + sin(Time.get_ticks_msec() * 0.012) * 0.2
+			var target_radius: float = 22.0 + pulse * 10.0
+			draw_circle(finish, target_radius, Color(1.0, 0.25, 0.1, 0.08))
+			draw_arc(finish, target_radius, 0, TAU, 32, Color(1.0, 0.45, 0.18, 0.55), 2.5)
+			draw_arc(finish, target_radius * 0.65, 0, TAU, 24, Color(1.0, 0.75, 0.25, 0.35), 1.5)
+		draw_circle(pos, radius + 5.0, Color(color.r, color.g, color.b, 0.22))
+		draw_circle(pos, radius, color)
+		draw_circle(pos, radius * 0.45, Color(1, 1, 1, 0.55))
+
+func _draw_spell_chains() -> void:
+	for chain in _spell_chains:
+		var ttl: float = float(chain.get("ttl", 0.0))
+		var duration: float = maxf(float(chain.get("duration", 0.4)), 0.01)
+		var alpha: float = clampf(ttl / duration, 0.0, 1.0)
+		var chain_type: String = str(chain.get("type", "lightning"))
+		var points: Array = chain.get("points", [])
+		if points.size() < 2:
 			continue
-		if not token.goblin_data:
-			continue
-		if _shielded_tokens.has(token.goblin_data):
-			var center: Vector2 = token.position + Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
-			var pulse: float = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
-			draw_arc(center, token.TOKEN_RADIUS + 6, 0, TAU, 32, Color(0.2, 0.7, 1.0, pulse), 3.0)
-			draw_circle(center, token.TOKEN_RADIUS + 4, Color(0.2, 0.6, 1.0, 0.1))
+		for i in range(points.size() - 1):
+			var from_point: Vector2 = points[i]
+			var to_point: Vector2 = points[i + 1]
+			var color := Color(0.5, 0.85, 1.0, alpha) if chain_type == "lightning" else Color(0.35, 1.0, 0.55, alpha)
+			draw_line(from_point, to_point, color, 3.0 if chain_type == "lightning" else 4.0)
+			draw_circle(from_point, 6.0, Color(color.r, color.g, color.b, alpha * 0.35))
+			if chain_type == "lightning":
+				var mid: Vector2 = from_point.lerp(to_point, 0.5)
+				var dir: Vector2 = to_point - from_point
+				var normal: Vector2 = Vector2(-dir.y, dir.x).normalized()
+				draw_line(from_point, mid + normal * 8.0, color.lightened(0.2), 2.0)
+				draw_line(mid + normal * 8.0, to_point, color, 2.0)
+		var end_point: Vector2 = points[points.size() - 1]
+		draw_circle(end_point, 6.5, Color(1, 1, 1, alpha * 0.35))
 
 func _draw_pass_lines() -> void:
 	for line_data in _pass_lines:

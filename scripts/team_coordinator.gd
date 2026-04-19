@@ -28,6 +28,8 @@ var _force_reassign: bool = false
 # Track previous ball state to detect possession changes
 var _prev_ball_owner: GoblinData = null
 var _prev_ball_state: int = -1  # Ball.BallState
+var _pos_data_cache: Dictionary = {}
+var _zone_cache: Dictionary = {}
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -109,6 +111,16 @@ func _assign_team_roles(formation: Formation, _opp_formation: Formation,
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+func _get_pos_data(position: String) -> Dictionary:
+	if not _pos_data_cache.has(position):
+		_pos_data_cache[position] = PositionDatabase.get_position(position)
+	return _pos_data_cache[position]
+
+func _get_zone(position: String) -> String:
+	if not _zone_cache.has(position):
+		_zone_cache[position] = str(_get_pos_data(position).get("zone", "midfield"))
+	return str(_zone_cache[position])
+
 func _set_role(goblin: GoblinData, role: Role) -> void:
 	var current: Role = _roles.get(goblin, Role.HOLDER)
 	var ticks_left: int = _role_ticks.get(goblin, 0)
@@ -138,7 +150,7 @@ func _find_nearest_pressable(goblins: Array, goblin_states: Dictionary,
 		if goblin.position == "keeper":
 			continue
 		# DEFENDERS NEVER PRESS
-		var zone: String = PositionDatabase.get_zone(goblin.position)
+		var zone: String = _get_zone(goblin.position)
 		if zone == "defense":
 			continue
 		if not goblin_states.has(goblin):
@@ -157,7 +169,7 @@ func _find_nearest_pressable(goblins: Array, goblin_states: Dictionary,
 		var score: float = d + (0.0 if ball_in_zone else 0.5)
 
 		# Tendency weight: prefer aggressive pressers, avoid lazy ones
-		var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+		var pos_data: Dictionary = _get_pos_data(goblin.position)
 		var tend_opp: String = pos_data.get("tendency_opponent", "")
 		if tend_opp == "press_win_ball" or tend_opp == "cover_everywhere":
 			score -= 0.15  # preferred
@@ -189,7 +201,7 @@ func _find_nearest_pressable_any(goblins: Array, goblin_states: Dictionary,
 		var score: float = d
 
 		# Tendency weight
-		var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+		var pos_data: Dictionary = _get_pos_data(goblin.position)
 		var tend_opp: String = pos_data.get("tendency_opponent", "")
 		if tend_opp == "press_win_ball" or tend_opp == "cover_everywhere":
 			score -= 0.10
@@ -199,7 +211,7 @@ func _find_nearest_pressable_any(goblins: Array, goblin_states: Dictionary,
 			score += 0.30  # heavily penalized but NOT excluded
 
 		# Defenders get mild penalty (prefer mid/attack to press)
-		var zone: String = PositionDatabase.get_zone(goblin.position)
+		var zone: String = _get_zone(goblin.position)
 		if zone == "defense":
 			score += 0.08
 
@@ -241,7 +253,7 @@ func _find_best_cover(goblins: Array, goblin_states: Dictionary,
 		if not goblin_states.has(goblin):
 			continue
 		var gs: Dictionary = goblin_states[goblin]
-		var zone: String = PositionDatabase.get_zone(goblin.position)
+		var zone: String = _get_zone(goblin.position)
 		var score: float = _dist(float(gs["x"]), float(gs["y"]), cover_x, cover_y)
 		if zone == "defense":
 			score -= 0.16
@@ -249,7 +261,7 @@ func _find_best_cover(goblins: Array, goblin_states: Dictionary,
 			score -= 0.08
 		else:
 			score += 0.12
-		var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+		var pos_data: Dictionary = _get_pos_data(goblin.position)
 		var tend_opp: String = pos_data.get("tendency_opponent", "")
 		if tend_opp == "cover_everywhere" or tend_opp == "press_win_ball" or tend_opp == "intercept_through_balls":
 			score -= 0.10
@@ -273,7 +285,7 @@ func _find_best_marker(goblins: Array, goblin_states: Dictionary,
 		var ox: float = float(ogs["x"])
 		var oy: float = float(ogs["y"])
 		var threat: float = 1.0 - absf(ox - own_goal_x)
-		var zone: String = PositionDatabase.get_zone(opp.position)
+		var zone: String = _get_zone(opp.position)
 		if zone == "attack":
 			threat += 0.35
 		elif zone == "midfield":
@@ -293,7 +305,7 @@ func _find_best_marker(goblins: Array, goblin_states: Dictionary,
 		if not goblin_states.has(goblin):
 			continue
 		var gs: Dictionary = goblin_states[goblin]
-		var zone: String = PositionDatabase.get_zone(goblin.position)
+		var zone: String = _get_zone(goblin.position)
 		var score: float = _dist(float(gs["x"]), float(gs["y"]), target_x, target_y)
 		if zone == "defense":
 			score -= 0.18
@@ -301,7 +313,7 @@ func _find_best_marker(goblins: Array, goblin_states: Dictionary,
 			score -= 0.10
 		else:
 			score += 0.20
-		var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+		var pos_data: Dictionary = _get_pos_data(goblin.position)
 		var tend_opp: String = pos_data.get("tendency_opponent", "")
 		if tend_opp == "cover_everywhere" or tend_opp == "press_win_ball" or tend_opp == "intercept_through_balls":
 			score -= 0.08

@@ -27,8 +27,9 @@ var _spell_buttons: Array[Button] = []
 var _mana_label: RichTextLabel
 var _spell_container: HBoxContainer
 var _targeting_spell_index: int = -1  # Which hand index is being targeted
-var _targeting_mode: String = ""       # "pitch", "ally", "enemy"
+var _targeting_mode: String = ""       # "pitch", "ally", "enemy", "wobble"
 var _paused: bool = false
+var _pending_spell_resolutions: Array[Dictionary] = []
 
 # Wobble aiming
 var _wobble_active: bool = false
@@ -88,9 +89,9 @@ func _ready() -> void:
 	bottom_bar.add_child(_spell_container)
 	bottom_bar.move_child(_spell_container, 1)
 
-	# Counter-spell button (hidden until opponent starts casting)
+	# Counter button is kept hidden for now; the duel is about managing space, not cancelling casts.
 	_counter_btn = Button.new()
-	_counter_btn.text = "COUNTER! (1)"
+	_counter_btn.text = "REACT"
 	_counter_btn.custom_minimum_size = Vector2(120, 40)
 	_counter_btn.add_theme_font_size_override("font_size", 16)
 	_counter_btn.visible = false
@@ -116,6 +117,7 @@ func _ready() -> void:
 	_opponent_cast_label.position.y = 60
 
 	animated_pitch.pitch_clicked.connect(_on_pitch_clicked)
+	animated_pitch.goblin_token_clicked.connect(_on_goblin_token_clicked)
 
 	_setup_and_start()
 
@@ -151,7 +153,7 @@ func _setup_and_start() -> void:
 	await animated_pitch.setup(home_formation, away_formation)
 
 	sim = MatchSimulation.new()
-	sim.is_shielded = func(g: GoblinData) -> bool: return _spell_system.is_goblin_shielded(g)
+	sim.is_shielded = func(g: GoblinData) -> bool: return _spell_system.is_goblin_protected(g, sim.goblin_states)
 	_director = MatchDirectorClass.new()
 	_director.reset()
 	var snapshot := sim.start_match(home_formation, away_formation)
@@ -163,11 +165,14 @@ func _setup_and_start() -> void:
 		var opp_name := RunManager.get_current_opponent_name()
 		var stage := RunManager.get_stage_name()
 		_log("[color=yellow]%s - vs %s[/color]" % [stage, opp_name])
+	_log("[color=#ff9966]%s enters the touchline circle.[/color]" % _spell_system.opponent_archetype_name)
 	_log("[color=yellow]KICK OFF[/color]")
 
 func _process(delta: float) -> void:
 	if sim == null or sim.is_match_over():
 		return
+
+	_update_pending_spell_resolutions(delta)
 
 	# Wobble aiming update (runs even when paused for targeting)
 	if _wobble_active:
@@ -177,9 +182,6 @@ func _process(delta: float) -> void:
 		_wobble_x = clampf(_wobble_x, 0.05, 0.95)
 		_wobble_y = clampf(_wobble_y, 0.08, 0.92)
 		animated_pitch.set_wobble_reticle(_wobble_x, _wobble_y)
-
-	if _paused:
-		return
 
 	_tick_accumulator += delta * _speed_multiplier
 	var tick_interval: float = 1.0 / MatchSimulation.TICKS_PER_SECOND
@@ -237,9 +239,11 @@ func _refresh_spell_buttons() -> void:
 
 func _refresh_mana() -> void:
 	var mana_int: int = int(_spell_system.mana)
+	var enemy_mana_int: int = int(_spell_system.opponent_mana)
 	var mana_max: int = int(SpellSystem.MAX_MANA)
 	_mana_label.text = ""
-	_mana_label.append_text("[color=#4d99ff]%d[/color][color=#666688]/%d[/color]" % [mana_int, mana_max])
+	_mana_label.append_text("[color=#4d99ff]YOU %d[/color][color=#666688]/%d[/color]  [color=#ff8844]FOE %d[/color]" % [mana_int, mana_max, enemy_mana_int])
+	_refresh_spell_buttons()
 
 func _get_spell_color(spell: SpellData) -> Color:
 	match spell.special_effect:
@@ -247,8 +251,10 @@ func _get_spell_color(spell: SpellData) -> Color:
 			return Color(1.0, 0.4, 0.1)
 		"shield_dome":
 			return Color(0.3, 0.8, 1.0)
-		"counter_spell":
-			return Color(0.9, 0.2, 0.9)
+		"chain_lightning":
+			return Color(0.55, 0.9, 1.0)
+		"healing_wave":
+			return Color(0.45, 1.0, 0.65)
 		"haste":
 			return Color(0.3, 1.0, 0.4)
 		"shadow_wall":
@@ -284,10 +290,11 @@ func _on_spell_pressed(hand_index: int) -> void:
 		"fireball":
 			_start_wobble_targeting(hand_index)
 		"shield_dome":
+			_start_targeting(hand_index, "pitch")
+		"chain_lightning":
+			_start_targeting(hand_index, "enemy")
+		"healing_wave":
 			_start_targeting(hand_index, "ally")
-		"counter_spell":
-			# Counter is handled by the counter button, not the spell hand
-			_cast_spell_immediate(hand_index)
 		_:
 			# Default: check target type
 			match spell.target_type:
@@ -301,11 +308,14 @@ func _on_spell_pressed(hand_index: int) -> void:
 func _start_targeting(hand_index: int, mode: String) -> void:
 	_targeting_spell_index = hand_index
 	_targeting_mode = mode
-	_paused = true
 	animated_pitch._targeting_active = true
+	animated_pitch.set_team_targeting(true, mode == "ally")
+	animated_pitch.set_team_targeting(false, mode == "enemy")
 	var spell: SpellData = _spell_system.hand[hand_index]
 
 	match mode:
+		"pitch":
+			_log("[color=#66ccff]Click the pitch to place %s.[/color]" % spell.spell_name)
 		"ally":
 			_log("[color=#33ff55]Click one of your goblins to cast %s![/color]" % spell.spell_name)
 		"enemy":
@@ -319,12 +329,13 @@ func _start_wobble_targeting(hand_index: int) -> void:
 	## Start wobble aiming for AoE spells (Fireball, Meteor, etc.)
 	_targeting_spell_index = hand_index
 	_targeting_mode = "wobble"
-	_paused = true
 	_wobble_active = true
 	_wobble_x = 0.5
 	_wobble_y = 0.5
 	_wobble_time = randf() * 10.0  # random start phase
 	animated_pitch._targeting_active = true
+	animated_pitch.set_team_targeting(true, false)
+	animated_pitch.set_team_targeting(false, false)
 	_log("[color=#ff6600][b]AIMING! Tap to fire at the wobbling reticle![/b][/color]")
 	if hand_index < _spell_buttons.size():
 		_spell_buttons[hand_index].text = "CANCEL"
@@ -332,52 +343,29 @@ func _start_wobble_targeting(hand_index: int) -> void:
 func _cancel_targeting() -> void:
 	_targeting_spell_index = -1
 	_targeting_mode = ""
-	_paused = false
 	_wobble_active = false
 	animated_pitch._targeting_active = false
+	animated_pitch.set_team_targeting(true, false)
+	animated_pitch.set_team_targeting(false, false)
 	animated_pitch.clear_wobble_reticle()
 	_refresh_spell_buttons()
 
 func _on_counter_pressed() -> void:
-	## Player presses counter-spell during opponent wind-up
-	if _spell_system.counter_opponent_cast():
-		_log("[color=#ff00ff][b]COUNTER SPELL! You cancel their magic![/b][/color]")
-		_update_sorcerer_ui()
-	else:
-		_log("[color=#aaaaaa]Can't counter right now.[/color]")
+	_log("[color=#aaaaaa]The duel shifted away from counterspells. Use space-control and healing instead.[/color]")
 
 func _check_opponent_cast_fired() -> void:
 	## Check if opponent's wind-up completed and fire their spell
-	if not _spell_system.opponent_casting:
-		return
-	if _spell_system.opponent_cast_progress < 1.0:
+	if not _spell_system.opponent_cast_ready:
 		return
 	# Wind-up complete - fire the spell!
 	var spell: SpellData = _spell_system.opponent_cast_spell
-	_spell_system.opponent_casting = false
-	_spell_system.opponent_cast_spell = null
-	_spell_system.opponent_cast_progress = 0.0
-	if spell == null:
-		return
 	var tx: float = _spell_system.opponent_cast_target_x
 	var ty: float = _spell_system.opponent_cast_target_y
-	match spell.special_effect:
-		"fireball":
-			sim.cast_fireball(1, tx, ty)
-			_log("[color=#ff4400][b]ENEMY FIREBALL! Impact at the pitch![/b][/color]")
-			animated_pitch.play_fireball_explosion(tx, ty)
-		"shield_dome":
-			# Shield a random away goblin
-			var away_goblins: Array = away_formation.get_all()
-			if not away_goblins.is_empty():
-				var target: GoblinData = away_goblins[randi() % away_goblins.size()]
-				_spell_system.apply_shield(target)
-				_log("[color=#33ccff][b]ENEMY SHIELD DOME on %s![/b][/color]" % target.goblin_name)
-		"haste":
-			sim.cast_haste(1)
-			_log("[color=#33ff55][b]ENEMY HASTE! Their goblins surge![/b][/color]")
-		_:
-			_log("[color=#ff6600]Enemy casts %s![/color]" % spell.spell_name)
+	var target_goblin: GoblinData = _spell_system.opponent_cast_target_goblin
+	_spell_system.clear_opponent_cast()
+	if spell == null:
+		return
+	_queue_spell_resolution(1, spell, target_goblin, tx, ty)
 
 func _update_sorcerer_ui() -> void:
 	## Update opponent casting display, counter button, shield visuals
@@ -386,14 +374,11 @@ func _update_sorcerer_ui() -> void:
 		var spell_name: String = _spell_system.opponent_cast_spell.spell_name if _spell_system.opponent_cast_spell else "???"
 		var pct: int = int(_spell_system.opponent_cast_progress * 100)
 		_opponent_cast_label.text = "OPPONENT CASTING: %s [%d%%]" % [spell_name.to_upper(), pct]
-		_counter_btn.visible = _spell_system.mana >= 1.0
 	else:
 		_opponent_cast_label.visible = false
-		_counter_btn.visible = false
+	_counter_btn.visible = false
 
-	# Sync shield dome visuals
-	animated_pitch._shielded_tokens = _spell_system.shielded_goblins.duplicate()
-	animated_pitch.queue_redraw()
+	animated_pitch.set_active_domes(_spell_system.get_active_domes_visuals())
 
 	_refresh_mana()
 
@@ -403,8 +388,9 @@ func _cast_spell_immediate(hand_index: int) -> void:
 		return
 
 	match spell.special_effect:
-		"curse_of_post":
-			sim.cast_curse_of_post(0)
+		"haste":
+			sim.cast_haste(0)
+			_log("[color=#44dd66][b]HASTE! Your goblins surge forward![/b][/color]")
 		_:
 			# Generic: apply stat_modifiers to all allies or all enemies
 			if not spell.stat_modifiers.is_empty():
@@ -433,17 +419,16 @@ func _cast_spell_targeted(hand_index: int, target: GoblinData) -> void:
 
 	# Handle special effects first, then fall through to generic buff
 	match spell.special_effect:
-		"shield_dome":
-			_spell_system.apply_shield(target)
-			_log("[color=#33ccff][b]SHIELD DOME! %s is invincible![/b][/color]" % target.goblin_name)
+		"chain_lightning":
+			_queue_spell_resolution(0, spell, target)
+		"healing_wave":
+			_queue_spell_resolution(0, spell, target)
 		"hex":
 			sim.cast_hex(0, target)
-		"blood_pact":
-			sim.cast_blood_pact(0, target)
-			_spell_system.blood_pact_targets.append(target)
-		"dark_ascension":
-			_spell_system.dark_ascension_targets.append(target)
-			_log("[color=#ff00ff][b]DARK ASCENSION! %s transcends... but at what cost?[/b][/color]" % target.goblin_name)
+			_log("[color=#bb44ee][b]HEX! %s is cursed.[/b][/color]" % target.goblin_name)
+		"dark_surge":
+			sim.cast_dark_surge(0, target)
+			_log("[color=#ff9933][b]DARK SURGE on %s![/b][/color]" % target.goblin_name)
 		_:
 			# Generic: apply all stat_modifiers as buffs to the target
 			var duration_ticks: int = int(spell.duration * MatchSimulation.TICKS_PER_SECOND) if spell.duration > 0.0 else 0
@@ -455,6 +440,13 @@ func _cast_spell_targeted(hand_index: int, target: GoblinData) -> void:
 	var snapshot := sim._build_snapshot()
 	_apply_director(snapshot)
 	_process_events(snapshot)
+	_post_cast_cleanup(hand_index)
+
+func _cast_spell_pitch(hand_index: int, pitch_x: float, pitch_y: float) -> void:
+	var spell := _spell_system.cast(hand_index)
+	if spell == null:
+		return
+	_queue_spell_resolution(0, spell, null, pitch_x, pitch_y)
 	_post_cast_cleanup(hand_index)
 
 func _post_cast_cleanup(_hand_index: int) -> void:
@@ -472,15 +464,11 @@ func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
 		var fire_x: float = _wobble_x
 		var fire_y: float = _wobble_y
 		_cancel_targeting()
-		var spell := _spell_system.cast(idx)
-		if spell:
-			sim.cast_fireball(0, fire_x, fire_y)
-			_log("[color=#ff6600][b]FIREBALL! Impact at the pitch![/b][/color]")
-			animated_pitch.play_fireball_explosion(fire_x, fire_y)
-			var snapshot := sim._build_snapshot()
-			_apply_director(snapshot)
-			_process_events(snapshot)
-			_post_cast_cleanup(idx)
+		_cast_spell_pitch(idx, fire_x, fire_y)
+	elif _targeting_mode == "pitch":
+		var idx := _targeting_spell_index
+		_cancel_targeting()
+		_cast_spell_pitch(idx, pitch_x, pitch_y)
 	elif _targeting_mode == "ally" or _targeting_mode == "enemy":
 		# Find nearest goblin to click
 		var target := _find_nearest_goblin(pitch_x, pitch_y, _targeting_mode == "ally")
@@ -488,11 +476,26 @@ func _on_pitch_clicked(pitch_x: float, pitch_y: float) -> void:
 			var idx := _targeting_spell_index
 			_targeting_spell_index = -1
 			_targeting_mode = ""
-			_paused = false
 			animated_pitch._targeting_active = false
 			_cast_spell_targeted(idx, target)
 		else:
 			_log("[color=#aaaaaa]No valid target there. Click a goblin or press ESC to cancel.[/color]")
+
+func _on_goblin_token_clicked(goblin_name: String) -> void:
+	if _targeting_spell_index < 0:
+		return
+	if _targeting_mode != "ally" and _targeting_mode != "enemy":
+		return
+	var target := _find_goblin_by_name(goblin_name, _targeting_mode == "ally")
+	if target == null:
+		return
+	var idx := _targeting_spell_index
+	_targeting_spell_index = -1
+	_targeting_mode = ""
+	animated_pitch._targeting_active = false
+	animated_pitch.set_team_targeting(true, false)
+	animated_pitch.set_team_targeting(false, false)
+	_cast_spell_targeted(idx, target)
 
 func _find_nearest_goblin(px: float, py: float, ally: bool) -> GoblinData:
 	var formation: Formation = home_formation if ally else away_formation
@@ -509,6 +512,147 @@ func _find_nearest_goblin(px: float, py: float, ally: bool) -> GoblinData:
 			best_dist = d
 			best = goblin
 	return best
+
+func _find_goblin_by_name(goblin_name: String, ally: bool) -> GoblinData:
+	var formation: Formation = home_formation if ally else away_formation
+	for goblin in formation.get_all():
+		if goblin.goblin_name == goblin_name and sim.goblin_states.has(goblin):
+			return goblin
+	return null
+
+func _queue_spell_resolution(team_index: int, spell: SpellData, target_goblin: GoblinData = null,
+		target_x: float = -1.0, target_y: float = -1.0) -> void:
+	var cast_from_home: bool = team_index == 0
+	var pitch_x: float = target_x
+	var pitch_y: float = target_y
+	if target_goblin and sim.goblin_states.has(target_goblin):
+		var gs: Dictionary = sim.goblin_states[target_goblin]
+		pitch_x = float(gs["x"])
+		pitch_y = float(gs["y"])
+
+	match spell.special_effect:
+		"fireball":
+			animated_pitch.launch_spell_projectile("fireball", cast_from_home, pitch_x, pitch_y)
+			_pending_spell_resolutions.append({
+				"type": "fireball",
+				"team_index": team_index,
+				"x": pitch_x,
+				"y": pitch_y,
+				"timer": 2.35,
+			})
+			_log("[color=#ff7733][b]%s FIREBALL INBOUND! Move before it lands![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"shield_dome":
+			animated_pitch.launch_spell_projectile("dome", cast_from_home, pitch_x, pitch_y)
+			_pending_spell_resolutions.append({
+				"type": "shield_dome",
+				"team_index": team_index,
+				"x": pitch_x,
+				"y": pitch_y,
+				"timer": 0.45,
+			})
+			_log("[color=#66ccff][b]%s SHIELD DOME forming...[/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"chain_lightning":
+			var enemy_formation: Formation = away_formation if team_index == 0 else home_formation
+			var chain_targets: Array = _build_bounce_targets(target_goblin, enemy_formation, 3, 0.22)
+			animated_pitch.play_spell_chain(_build_pitch_points_from_targets(chain_targets), "lightning")
+			_pending_spell_resolutions.append({
+				"type": "chain_lightning",
+				"team_index": team_index,
+				"targets": chain_targets,
+				"timer": 0.22,
+			})
+			_log("[color=#77ddff][b]%s CHAIN LIGHTNING crackles![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"healing_wave":
+			var ally_formation: Formation = home_formation if team_index == 0 else away_formation
+			var heal_targets: Array = _build_bounce_targets(target_goblin, ally_formation, 3, 0.24)
+			animated_pitch.play_spell_chain(_build_pitch_points_from_targets(heal_targets), "heal")
+			_pending_spell_resolutions.append({
+				"type": "healing_wave",
+				"team_index": team_index,
+				"targets": heal_targets,
+				"timer": 0.24,
+			})
+			_log("[color=#66ff99][b]%s HEALING WAVE surges![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"haste":
+			sim.cast_haste(team_index)
+		"hex":
+			if target_goblin:
+				sim.cast_hex(team_index, target_goblin)
+		"dark_surge":
+			if target_goblin:
+				sim.cast_dark_surge(team_index, target_goblin)
+
+func _build_bounce_targets(start_goblin: GoblinData, formation: Formation, max_targets: int, bounce_radius: float) -> Array:
+	var results: Array = []
+	if start_goblin == null or not sim.goblin_states.has(start_goblin):
+		return results
+	results.append(start_goblin)
+	var remaining: Array = formation.get_all().duplicate()
+	remaining.erase(start_goblin)
+	var current: GoblinData = start_goblin
+	while results.size() < max_targets and not remaining.is_empty():
+		if not sim.goblin_states.has(current):
+			break
+		var cgs: Dictionary = sim.goblin_states[current]
+		var cx: float = float(cgs["x"])
+		var cy: float = float(cgs["y"])
+		var best: GoblinData = null
+		var best_dist: float = bounce_radius
+		for goblin in remaining:
+			if not sim.goblin_states.has(goblin):
+				continue
+			var gs: Dictionary = sim.goblin_states[goblin]
+			var d: float = sqrt((float(gs["x"]) - cx) * (float(gs["x"]) - cx) + (float(gs["y"]) - cy) * (float(gs["y"]) - cy))
+			if d <= best_dist:
+				best_dist = d
+				best = goblin
+		if best == null:
+			break
+		results.append(best)
+		remaining.erase(best)
+		current = best
+	return results
+
+func _build_pitch_points_from_targets(targets: Array) -> Array:
+	var points: Array = []
+	for goblin_variant in targets:
+		var goblin: GoblinData = goblin_variant as GoblinData
+		if goblin == null or not sim.goblin_states.has(goblin):
+			continue
+		var gs: Dictionary = sim.goblin_states[goblin]
+		points.append(Vector2(float(gs["x"]), float(gs["y"])))
+	return points
+
+func _update_pending_spell_resolutions(delta: float) -> void:
+	for i in range(_pending_spell_resolutions.size() - 1, -1, -1):
+		var pending: Dictionary = _pending_spell_resolutions[i]
+		pending["timer"] = float(pending.get("timer", 0.0)) - delta
+		if float(pending["timer"]) <= 0.0:
+			_pending_spell_resolutions.remove_at(i)
+			_resolve_pending_spell(pending)
+		else:
+			_pending_spell_resolutions[i] = pending
+
+func _resolve_pending_spell(pending: Dictionary) -> void:
+	var spell_type: String = str(pending.get("type", ""))
+	var team_index: int = int(pending.get("team_index", 0))
+	match spell_type:
+		"fireball":
+			var fx: float = float(pending.get("x", 0.5))
+			var fy: float = float(pending.get("y", 0.5))
+			sim.cast_fireball(team_index, fx, fy)
+			animated_pitch.play_fireball_explosion(fx, fy)
+		"shield_dome":
+			_spell_system.apply_dome(team_index, float(pending.get("x", 0.5)), float(pending.get("y", 0.5)))
+		"chain_lightning":
+			sim.cast_chain_lightning(team_index, pending.get("targets", []))
+		"healing_wave":
+			sim.cast_healing_wave(team_index, pending.get("targets", []))
+
+	var snapshot := sim._build_snapshot()
+	_apply_director(snapshot)
+	_process_events(snapshot)
+	_update_sorcerer_ui()
 
 func _apply_director(snapshot: Dictionary) -> void:
 	if _director == null:
@@ -653,8 +797,22 @@ func _process_events(snapshot: Dictionary) -> void:
 			"team_eliminated":
 				var team3: String = str(event.get("team", ""))
 				_log("[color=red][b]%s TEAM WIPED OUT![/b][/color]" % [team3.to_upper()])
+			"shield_block":
+				var shielded: String = str(event.get("goblin", ""))
+				_log("[color=#66ccff]%d' Shield Dome protects %s[/color]" % [clock_min, shielded])
 
 			# ── Spell events ──
+			"chain_lightning":
+				_log("[color=#88ddff][b]%d' CHAIN LIGHTNING rips through the pitch![/b][/color]" % [clock_min])
+			"lightning_hit":
+				var lg: String = str(event.get("goblin", ""))
+				var lsev: String = str(event.get("severity", "minor"))
+				_log("[color=#88ddff]%d' Lightning scorches %s (%s)[/color]" % [clock_min, lg, lsev])
+			"healing_wave":
+				_log("[color=#66ff99][b]%d' HEALING WAVE rolls across the squad![/b][/color]" % [clock_min])
+			"healed":
+				var healed_gob: String = str(event.get("goblin", ""))
+				_log("[color=#66ff99]%d' %s is restored by the wave[/color]" % [clock_min, healed_gob])
 			"haste":
 				_log("[color=#33ff55][b]%d' HASTE! Your goblins surge with speed![/b][/color]" % [clock_min])
 			"haste_expired":

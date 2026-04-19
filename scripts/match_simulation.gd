@@ -1089,10 +1089,6 @@ const FIREBALL_BLAST_RADIUS: float = 0.16  # injury/death falloff zone
 func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
 	## One-time AoE spell: hits all goblins in blast radius.
 	## Center = instant kill, edge = injury chance. Hits both teams!
-	if not fireball_available[team_index]:
-		return false
-
-	fireball_available[team_index] = false
 	_tick_events.append({"type": "fireball", "x": target_x, "y": target_y, "team": "home" if team_index == 0 else "away"})
 
 	# Check every goblin on the pitch
@@ -1108,6 +1104,9 @@ func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
 		var d: float = float(entry["dist"])
 		if not goblin_states.has(goblin):
 			continue  # already removed by earlier hit this frame
+		if is_shielded.call(goblin):
+			_tick_events.append({"type": "shield_block", "goblin": goblin.goblin_name})
+			continue
 
 		if d < FIREBALL_KILL_RADIUS:
 			# Direct hit - instant death
@@ -1138,9 +1137,6 @@ func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
 
 func cast_haste(team_index: int) -> bool:
 	## One-time spell: +3 speed to all goblins on your team for 10 seconds.
-	if not haste_available[team_index]:
-		return false
-	haste_available[team_index] = false
 	_haste_ticks[team_index] = HASTE_DURATION_TICKS
 
 	var formation: Formation = home_formation if team_index == 0 else away_formation
@@ -1338,6 +1334,43 @@ func cast_curse_of_post(team_index: int) -> bool:
 	_curse_charges[team_index] += 1
 	var team_name: String = "home" if team_index == 0 else "away"
 	_tick_events.append({"type": "curse_of_post", "team": team_name})
+	return true
+
+func cast_chain_lightning(team_index: int, targets: Array) -> bool:
+	if targets.is_empty():
+		return false
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "chain_lightning", "team": team_name})
+	for i in range(targets.size()):
+		var goblin: GoblinData = targets[i] as GoblinData
+		if goblin == null or not goblin_states.has(goblin):
+			continue
+		if is_shielded.call(goblin):
+			_tick_events.append({"type": "shield_block", "goblin": goblin.goblin_name})
+			continue
+		var severity: GoblinData.InjuryState = GoblinData.InjuryState.MINOR
+		if i == 0:
+			severity = GoblinData.InjuryState.MAJOR
+		goblin.apply_injury(severity)
+		var sev_name: String = "major" if severity == GoblinData.InjuryState.MAJOR else "minor"
+		_tick_events.append({"type": "lightning_hit", "goblin": goblin.goblin_name, "severity": sev_name})
+	return true
+
+func cast_healing_wave(team_index: int, targets: Array) -> bool:
+	if targets.is_empty():
+		return false
+	var team_name: String = "home" if team_index == 0 else "away"
+	_tick_events.append({"type": "healing_wave", "team": team_name})
+	for goblin_variant in targets:
+		var goblin: GoblinData = goblin_variant as GoblinData
+		if goblin == null or not goblin_states.has(goblin):
+			continue
+		if goblin.injury == GoblinData.InjuryState.MINOR or goblin.injury == GoblinData.InjuryState.MAJOR:
+			goblin.heal_injury()
+			_tick_events.append({"type": "healed", "goblin": goblin.goblin_name})
+		else:
+			_apply_buff(goblin, "defense", 1, 80, "healing_wave")
+			_tick_events.append({"type": "healed", "goblin": goblin.goblin_name})
 	return true
 
 func get_blood_pact_targets() -> Array[GoblinData]:
