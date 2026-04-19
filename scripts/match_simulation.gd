@@ -1001,10 +1001,16 @@ func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 
 # ── Goblin Violence (Injury / Death / Removal) ──────────────────────────
 
+# Shield check callback - set by match_sim_viewer to check SpellSystem shields
+var is_shielded: Callable = func(_g: GoblinData) -> bool: return false
+
 func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool) -> void:
 	## After a successful tackle or foul, roll for injury/death.
 	## Tuned so injuries are notable events, not every-tackle occurrences.
 	## Expect ~1-2 injuries per match, deaths rare (1 in 5-10 matches).
+	if is_shielded.call(victim):
+		_tick_events.append({"type": "shield_block", "goblin": victim.goblin_name})
+		return  # shield absorbs the hit
 	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.008
 	if was_foul:
 		injury_chance += 0.08

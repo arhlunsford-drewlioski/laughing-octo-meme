@@ -210,6 +210,13 @@ func remove_goblin_token(goblin_name: String) -> void:
 var _fireball_targeting: bool = false  # legacy, kept for compatibility
 var _targeting_active: bool = false    # general targeting mode (any spell)
 
+# Wobble reticle
+var _wobble_reticle_active: bool = false
+var _wobble_reticle_pos: Vector2 = Vector2.ZERO  # pitch coordinates
+
+# Shield dome visuals: {GoblinData: true}
+var _shielded_tokens: Dictionary = {}
+
 # Fireball explosion effect
 var _explosion_active: bool = false
 var _explosion_center: Vector2 = Vector2.ZERO
@@ -225,6 +232,15 @@ func screen_to_pitch(screen_pos: Vector2) -> Vector2:
 	var px: float = (screen_pos.x - _pitch_rect.position.x) / _pitch_rect.size.x
 	var py: float = (screen_pos.y - _pitch_rect.position.y) / _pitch_rect.size.y
 	return Vector2(clampf(px, 0.0, 1.0), clampf(py, 0.0, 1.0))
+
+func set_wobble_reticle(pitch_x: float, pitch_y: float) -> void:
+	_wobble_reticle_active = true
+	_wobble_reticle_pos = _pitch_pos(pitch_x, pitch_y)
+	queue_redraw()
+
+func clear_wobble_reticle() -> void:
+	_wobble_reticle_active = false
+	queue_redraw()
 
 func set_fireball_targeting(enabled: bool) -> void:
 	## Toggle AoE fireball targeting - click anywhere on pitch.
@@ -466,7 +482,38 @@ func _draw() -> void:
 	_draw_pass_lines()
 	_draw_extra_balls()
 	_draw_haste_glow()
+	_draw_wobble_reticle()
+	_draw_shield_domes()
 	_draw_explosion()
+
+func _draw_wobble_reticle() -> void:
+	if not _wobble_reticle_active:
+		return
+	# Pulsing red crosshair at the wobble position
+	var center: Vector2 = _wobble_reticle_pos
+	var pulse: float = 0.6 + sin(Time.get_ticks_msec() * 0.008) * 0.4
+	var color := Color(1.0, 0.3, 0.1, pulse)
+	draw_circle(center, 30, Color(1.0, 0.2, 0.0, 0.15))
+	draw_circle(center, 20, Color(1.0, 0.3, 0.1, 0.25))
+	draw_arc(center, 25, 0, TAU, 32, color, 2.5)
+	# Crosshair lines
+	draw_line(center + Vector2(-15, 0), center + Vector2(-6, 0), color, 2.0)
+	draw_line(center + Vector2(6, 0), center + Vector2(15, 0), color, 2.0)
+	draw_line(center + Vector2(0, -15), center + Vector2(0, -6), color, 2.0)
+	draw_line(center + Vector2(0, 6), center + Vector2(0, 15), color, 2.0)
+
+func _draw_shield_domes() -> void:
+	# Draw blue bubble around shielded tokens
+	for token in _player_tokens + _opponent_tokens:
+		if not is_instance_valid(token):
+			continue
+		if not token.goblin_data:
+			continue
+		if _shielded_tokens.has(token.goblin_data):
+			var center: Vector2 = token.position + Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
+			var pulse: float = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
+			draw_arc(center, token.TOKEN_RADIUS + 6, 0, TAU, 32, Color(0.2, 0.7, 1.0, pulse), 3.0)
+			draw_circle(center, token.TOKEN_RADIUS + 4, Color(0.2, 0.6, 1.0, 0.1))
 
 func _draw_pass_lines() -> void:
 	for line_data in _pass_lines:

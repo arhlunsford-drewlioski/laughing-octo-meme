@@ -21,7 +21,24 @@ static func make_spell(p_name: String, p_desc: String, p_mana: int, p_target: Sp
 	s.shop_cost = p_shop_cost
 	return s
 
-# ── Spell Cards (15 total, buff/debuff only) ──────────────────────────────
+# ── Spell Cards ─────────────────────────────────────────────────────────────
+
+# --- Dramatic / Destructive ---
+
+static func fireball() -> SpellData:
+	return make_spell("Fireball", "AoE blast - kills/injures goblins in radius. BOTH TEAMS.",
+		2, SpellData.TargetType.NONE, {}, "fireball", 0.0, false,
+		SpellData.Rarity.UNCOMMON, 40)
+
+static func shield_dome() -> SpellData:
+	return make_spell("Shield Dome", "One goblin becomes invincible for 20 seconds.",
+		2, SpellData.TargetType.ALLY, {}, "shield_dome", 20.0, false,
+		SpellData.Rarity.UNCOMMON, 40)
+
+static func counter_spell() -> SpellData:
+	return make_spell("Counter Spell", "Cancel the opponent sorcerer's current spell.",
+		1, SpellData.TargetType.NONE, {}, "counter_spell", 0.0, false,
+		SpellData.Rarity.COMMON, 25)
 
 # --- 1 Mana (cheap utility) ---
 
@@ -122,8 +139,8 @@ static func all_spells() -> Array[SpellData]:
 		blood_pact(), frenzy(), fog_of_war(), adrenaline(), dark_ascension()]
 
 static func starter_deck() -> Array[SpellData]:
-	## Starting spell deck: 4 basic spells.
-	return [haste(), dark_surge(), shadow_wall(), curse_of_the_post()]
+	## Starting spell deck: the essentials for a sorcerer duel.
+	return [fireball(), shield_dome(), haste(), dark_surge(), counter_spell()]
 
 static func shop_pool() -> Array[SpellData]:
 	## All spells available for purchase (including duplicates of starters).
