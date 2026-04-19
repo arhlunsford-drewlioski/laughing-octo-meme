@@ -805,7 +805,7 @@ func _on_match_over(snapshot: Dictionary) -> void:
 		_award_xp()
 		back_btn.text = "CONTINUE"
 	else:
-		back_btn.text = "BACK"
+		back_btn.text = "PLAY AGAIN"
 
 func _cycle_speed() -> void:
 	_speed_index = (_speed_index + 1) % SPEED_OPTIONS.size()
@@ -862,6 +862,9 @@ func _award_xp() -> void:
 func _on_back_pressed() -> void:
 	if RunManager.run_active and sim != null and sim.is_match_over():
 		get_tree().change_scene_to_file("res://scenes/screens/shop.tscn")
+	elif sim != null and sim.is_match_over() and not RunManager.run_active:
+		# Quick-play: replay another match immediately
+		get_tree().reload_current_scene()
 	else:
 		get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")
 
