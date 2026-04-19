@@ -4,7 +4,7 @@ extends RefCounted
 
 const MAX_HAND_SIZE: int = 5
 const MAX_MANA: float = 10.0
-const MANA_REGEN_PER_TICK: float = 0.011  # ~1 mana per 9 match-minutes, ~10 total per match
+const MANA_REGEN_PER_TICK: float = 0.035  # ~0.35 mana/sec, full bar in ~28 seconds
 
 var deck: Array[SpellData] = []
 var hand: Array[SpellData] = []
@@ -33,7 +33,7 @@ const SHIELD_DURATION_TICKS: int = 200  # 20 seconds
 
 func setup(spell_deck: Array[SpellData], opponent_spells: Array[SpellData] = []) -> void:
 	deck = spell_deck.duplicate()
-	mana = 0.0
+	mana = 3.0  # start with enough for one big spell or a few cheap ones
 	blood_pact_targets.clear()
 	dark_ascension_targets.clear()
 	curse_charges = 0
@@ -42,8 +42,8 @@ func setup(spell_deck: Array[SpellData], opponent_spells: Array[SpellData] = [])
 	opponent_cast_spell = null
 	opponent_cast_progress = 0.0
 	_opponent_cast_ticks = 0
-	_opponent_cooldown = 3.0  # wait 3 seconds before first cast
-	opponent_mana = 0.0
+	_opponent_cooldown = 5.0  # wait 5 seconds before first cast
+	opponent_mana = 3.0
 	_draw_hand()
 	_draw_opponent_hand(opponent_spells)
 
