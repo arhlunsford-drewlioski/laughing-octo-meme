@@ -135,6 +135,16 @@ var _team_possession_time: float = 0.0
 var _stale_possession_time: float = 0.0
 var _possession_progress_anchor_x: float = 0.5
 
+# Per-tick caches to avoid rebuilding the same team context for every AI decision.
+var _position_data_cache: Dictionary = {}
+var _position_zone_cache: Dictionary = {}
+var _home_team_entries: Array = []
+var _away_team_entries: Array = []
+var _home_run_states: Dictionary = {}
+var _away_run_states: Dictionary = {}
+var _home_keeper: GoblinData = null
+var _away_keeper: GoblinData = null
+
 # Transient action targets (consumed by _update_ideal_positions each tick)
 var _action_targets: Dictionary = {}
 # Persistent carrier target - survives cooldown so carrier keeps moving
@@ -186,6 +196,46 @@ static func _gf(d: Dictionary, key: String) -> float:
 static func _gb(d: Dictionary, key: String) -> bool:
 	return bool(d[key])
 
+func _get_position_data(position: String) -> Dictionary:
+	if not _position_data_cache.has(position):
+		_position_data_cache[position] = PositionDatabase.get_position(position)
+	return _position_data_cache[position]
+
+func _get_position_zone(position: String) -> String:
+	if not _position_zone_cache.has(position):
+		_position_zone_cache[position] = str(_get_position_data(position).get("zone", "midfield"))
+	return str(_position_zone_cache[position])
+
+func _refresh_team_context_cache() -> void:
+	_home_team_entries.clear()
+	_away_team_entries.clear()
+	_home_run_states.clear()
+	_away_run_states.clear()
+	_home_keeper = null
+	_away_keeper = null
+
+	for goblin in goblin_states:
+		var gs: Dictionary = goblin_states[goblin]
+		var entry := {
+			"goblin": goblin,
+			"x": _gf(gs, "x"),
+			"y": _gf(gs, "y"),
+		}
+		if _gb(gs, "is_home"):
+			_home_team_entries.append(entry)
+			if goblin.position == "keeper":
+				_home_keeper = goblin
+			var home_run_ticks: int = int(gs.get("run_ticks", 0))
+			if home_run_ticks > 0:
+				_home_run_states[goblin] = home_run_ticks
+		else:
+			_away_team_entries.append(entry)
+			if goblin.position == "keeper":
+				_away_keeper = goblin
+			var away_run_ticks: int = int(gs.get("run_ticks", 0))
+			if away_run_ticks > 0:
+				_away_run_states[goblin] = away_run_ticks
+
 # ── Initialization ──────────────────────────────────────────────────────────
 
 func start_match(home: Formation, away: Formation) -> Dictionary:
@@ -222,6 +272,12 @@ func start_match(home: Formation, away: Formation) -> Dictionary:
 	_team_possession_time = 0.0
 	_stale_possession_time = 0.0
 	_possession_progress_anchor_x = 0.5
+	_home_team_entries.clear()
+	_away_team_entries.clear()
+	_home_run_states.clear()
+	_away_run_states.clear()
+	_home_keeper = null
+	_away_keeper = null
 
 	_init_goblin_positions(home, true)
 	_init_goblin_positions(away, false)
@@ -388,6 +444,7 @@ func tick() -> Dictionary:
 
 	# 4. Update team coordinator roles
 	coordinator.update(goblin_states, ball, home_formation, away_formation)
+	_refresh_team_context_cache()
 
 	# 5. Tick cooldowns + process AI decisions for all goblins
 	#    Decision interval prevents re-evaluation spam (e.g., tackle loops)
@@ -946,19 +1003,24 @@ func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 
 func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool) -> void:
 	## After a successful tackle or foul, roll for injury/death.
-	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.022
+	## Tuned so injuries are notable events, not every-tackle occurrences.
+	## Expect ~1-2 injuries per match, deaths rare (1 in 5-10 matches).
+	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.008
 	if was_foul:
-		injury_chance += 0.15
-	if tackler.position == "enforcer":
 		injury_chance += 0.08
+	if tackler.position == "enforcer":
+		injury_chance += 0.04
+	# Victim's health reduces injury chance
+	injury_chance -= float(victim.get_stat("health")) * 0.005
+	injury_chance = maxf(injury_chance, 0.01)
 	if randf() >= injury_chance:
 		return
 
-	var severity_roll: float = randf() + float(tackler.get_stat("strength")) * 0.02
+	var severity_roll: float = randf()
 	var severity: int  # GoblinData.InjuryState
-	if severity_roll >= 0.95:
-		severity = GoblinData.InjuryState.DEAD
-	elif severity_roll >= 0.70:
+	if severity_roll >= 0.98:
+		severity = GoblinData.InjuryState.DEAD  # ~2% of injuries are fatal
+	elif severity_roll >= 0.65:
 		severity = GoblinData.InjuryState.MAJOR
 	else:
 		severity = GoblinData.InjuryState.MINOR
@@ -1314,7 +1376,7 @@ func _update_ideal_positions() -> void:
 			if int(gs2.get("run_ticks", 0)) > 0:
 				gs2["run_ticks"] = 0
 			# Tendency: sprint back on turnover
-			var td_opp: String = PositionDatabase.get_position(goblin.position).get("tendency_opponent", "")
+			var td_opp: String = str(_get_position_data(goblin.position).get("tendency_opponent", ""))
 			if td_opp == "track_back" or td_opp == "sprint_back_defend":
 				gs2["sprint_back_ticks"] = 15  # sprint back for 1.5 seconds
 
@@ -1386,7 +1448,7 @@ func _update_ideal_positions() -> void:
 				var dist_to_tgt: float = sqrt((_gf(gs, "x") - tgt_x) ** 2 + (_gf(gs, "y") - tgt_y) ** 2)
 				# Only nearby teammates (within 0.25) who aren't already on a run
 				if dist_to_tgt < 0.25 and int(gs.get("run_ticks", 0)) <= 0:
-					var p_data: Dictionary = PositionDatabase.get_position(goblin.position)
+					var p_data: Dictionary = _get_position_data(goblin.position)
 					var t_own: String = p_data.get("tendency_own_team", "")
 					# Filter: formation holders don't support
 					if t_own != "block_central" and t_own != "stay_in_goal":
@@ -1452,7 +1514,7 @@ func _update_ideal_positions() -> void:
 		# ── STATE 3B: Sweeper through-ball interception ──
 		# Sweepers with intercept_through_balls tendency can break zone to cut out passes
 		if ball.state == Ball.BallState.TRAVELLING and not my_team_has_ball:
-			var sw_tend: String = PositionDatabase.get_position(goblin.position).get("tendency_opponent", "")
+			var sw_tend: String = str(_get_position_data(goblin.position).get("tendency_opponent", ""))
 			if sw_tend == "intercept_through_balls":
 				# Check if ball is heading toward our defensive zone
 				var ball_heading_home: bool = (is_home and ball.vx < -0.01) or (not is_home and ball.vx > 0.01)
@@ -1579,7 +1641,7 @@ func _check_run_trigger(goblin: GoblinData, gs: Dictionary, is_home: bool,
 	if speed >= 6.0:
 		mult *= 1.3
 	# Tendency bonus
-	var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+	var pos_data: Dictionary = _get_position_data(goblin.position)
 	var tend_own: String = pos_data.get("tendency_own_team", "")
 	if tend_own == "hold_high_line":
 		mult *= 1.5
@@ -1762,8 +1824,9 @@ func _check_proximity_challenges() -> void:
 	var is_home: bool = _gb(carrier_gs, "is_home")
 
 	# Check all opponents for proximity
-	var opp_formation: Formation = away_formation if is_home else home_formation
-	for opp in opp_formation.get_all():
+	var opp_entries: Array = _away_team_entries if is_home else _home_team_entries
+	for opp_entry in opp_entries:
+		var opp: GoblinData = opp_entry["goblin"] as GoblinData
 		if not goblin_states.has(opp):
 			continue
 		var opp_gs: Dictionary = goblin_states[opp]
@@ -2081,22 +2144,11 @@ func _build_ai_context(goblin: GoblinData) -> GoblinAI.Context:
 	ctx.zone_rect = PositionDatabase.get_zone_rect_flipped(
 		goblin.position, ctx.team_has_ball, _gb(gs, "is_home"), is_left)
 
-	ctx.teammates = []
-	ctx.opponents = []
 	var is_home: bool = _gb(gs, "is_home")
-	var my_formation: Formation = home_formation if is_home else away_formation
-	var opp_formation: Formation = away_formation if is_home else home_formation
+	ctx.teammates = _home_team_entries if is_home else _away_team_entries
+	ctx.opponents = _away_team_entries if is_home else _home_team_entries
 
-	for t in my_formation.get_all():
-		if goblin_states.has(t):
-			var tgs: Dictionary = goblin_states[t]
-			ctx.teammates.append({"goblin": t, "x": _gf(tgs, "x"), "y": _gf(tgs, "y")})
-	for o in opp_formation.get_all():
-		if goblin_states.has(o):
-			var ogs: Dictionary = goblin_states[o]
-			ctx.opponents.append({"goblin": o, "x": _gf(ogs, "x"), "y": _gf(ogs, "y")})
-
-	var opp_keeper: GoblinData = opp_formation.get_keeper()
+	var opp_keeper: GoblinData = _away_keeper if is_home else _home_keeper
 	if opp_keeper and goblin_states.has(opp_keeper):
 		var kgs: Dictionary = goblin_states[opp_keeper]
 		ctx.keeper_x = _gf(kgs, "x")
@@ -2113,18 +2165,13 @@ func _build_ai_context(goblin: GoblinData) -> GoblinAI.Context:
 		ctx.stale_possession_time = _stale_possession_time
 
 	# Tendency data from position database
-	var pos_data: Dictionary = PositionDatabase.get_position(goblin.position)
+	var pos_data: Dictionary = _get_position_data(goblin.position)
 	ctx.tendency_with_ball = pos_data.get("tendency_with_ball", "")
 	ctx.tendency_own_team = pos_data.get("tendency_own_team", "")
 	ctx.tendency_opponent = pos_data.get("tendency_opponent", "")
 
 	# Teammate run states (for through-ball targeting)
-	ctx.teammate_run_states = {}
-	for t in my_formation.get_all():
-		if goblin_states.has(t):
-			var rt: int = int(goblin_states[t].get("run_ticks", 0))
-			if rt > 0:
-				ctx.teammate_run_states[t] = rt
+	ctx.teammate_run_states = _home_run_states if is_home else _away_run_states
 	return ctx
 
 # ── Stat Contest ────────────────────────────────────────────────────────────
