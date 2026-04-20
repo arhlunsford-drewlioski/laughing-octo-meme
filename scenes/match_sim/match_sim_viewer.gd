@@ -792,6 +792,13 @@ func _process_events(snapshot: Dictionary) -> void:
 				var sc: Array = event["score"]
 				_log("[color=lime][b]%d' GOAL! %s! (%d-%d)[/b][/color]" % [clock_min, event["goblin"], sc[0], sc[1]])
 				_flash_token(str(event["goblin"]), "goal")
+			"signature_move":
+				var sig_goblin: String = str(event.get("goblin", ""))
+				var sig_move: String = str(event.get("move", ""))
+				var sig_team: String = str(event.get("team", "home"))
+				var color: String = "#ffcc33" if sig_team == "home" else "#ff8844"
+				_log("[color=%s][b]%d' %s - %s![/b][/color]" % [color, clock_min, sig_move, sig_goblin])
+				_flash_token(sig_goblin, "take_on")
 			"shot":
 				_log("[color=white]%d' Shot: %s[/color]" % [clock_min, event["goblin"]])
 				_flash_token(str(event["goblin"]), "shot")

@@ -322,6 +322,9 @@ func _init_goblin_positions(formation: Formation, is_home: bool) -> void:
 				"chaos_wander_x": 0.0,
 				"chaos_wander_y": 0.0,
 				"chaos_wander_ticks": 0,
+				# Ability charge: 0.0 to 1.0, fills over time, triggers signature move
+				"ability_charge": 0.0,
+				"ability_charge_rate": 0.0035 + randf_range(-0.0005, 0.0005),  # varies per goblin
 			}
 
 func _kickoff_spawn_position(goblin: GoblinData, zone_name: String, is_home: bool,
@@ -474,6 +477,9 @@ func tick() -> Dictionary:
 
 	# 7b. Proximity challenge: any opponent near the ball carrier can contest
 	_check_proximity_challenges()
+
+	# 7c. Tick ability charges + trigger signature moves when full
+	_tick_ability_charges()
 
 	# 8. Update ball position if controlled
 	if ball.state == Ball.BallState.CONTROLLED and ball.owner and goblin_states.has(ball.owner):
@@ -2073,6 +2079,94 @@ func _check_proximity_challenges() -> void:
 				# Carrier keeps ball but defender is committed
 				opp_gs["cooldown"] = 0.4
 
+func _tick_ability_charges() -> void:
+	## Each goblin has a charge ring that fills over time.
+	## When full, they do a "signature move" based on their position.
+	## Signature moves connect football to spells - cast Haste right before a
+	## striker's ring fills for a guaranteed shot attempt.
+	for goblin in goblin_states:
+		var gs: Dictionary = goblin_states[goblin]
+		# Stopped goblins don't charge (can't do a signature move while stunned)
+		if _gf(gs, "cooldown") > 0.0:
+			continue
+		# Ball carriers charge faster (they're the ones with opportunities)
+		var rate: float = _gf(gs, "ability_charge_rate")
+		if ball.owner == goblin:
+			rate *= 1.8
+		# Fatigued/injured goblins charge slower
+		var health_mult: float = float(goblin.get_stat("health")) / 10.0
+		rate *= 0.6 + health_mult * 0.6  # 0.6x to 1.2x based on effective health
+
+		var new_charge: float = _gf(gs, "ability_charge") + rate
+		if new_charge >= 1.0:
+			# Trigger signature move!
+			gs["ability_charge"] = 0.0
+			_trigger_signature_move(goblin, gs)
+		else:
+			gs["ability_charge"] = new_charge
+
+func _trigger_signature_move(goblin: GoblinData, gs: Dictionary) -> void:
+	## Signature moves based on position. Small self-buff + event for UI.
+	var is_home: bool = _gb(gs, "is_home")
+	var team_name: String = "home" if is_home else "away"
+	var zone: String = PositionDatabase.get_zone(goblin.position)
+	var move_name: String = ""
+
+	match zone:
+		"attack":
+			# Attackers: +3 shooting burst for 5 seconds
+			_apply_buff(goblin, "shooting", 3, 50, "signature_strike")
+			_apply_buff(goblin, "speed", 2, 50, "signature_strike")
+			move_name = "STRIKER'S INSTINCT"
+		"midfield":
+			# Midfielders: +3 speed burst for 5 seconds
+			_apply_buff(goblin, "speed", 3, 50, "signature_engine")
+			_apply_buff(goblin, "defense", 2, 50, "signature_engine")
+			move_name = "ENGINE ROOM"
+		"defense":
+			# Defenders: +3 defense + strength burst, chance to tackle nearest opponent
+			_apply_buff(goblin, "defense", 3, 50, "signature_wall")
+			_apply_buff(goblin, "strength", 3, 50, "signature_wall")
+			move_name = "BRICK WALL"
+			# Try an immediate tackle on nearest enemy
+			_signature_tackle(goblin, gs)
+		"goal":
+			# Keepers: +4 defense + strength for 5 seconds (heroic save window)
+			_apply_buff(goblin, "defense", 4, 50, "signature_save")
+			_apply_buff(goblin, "strength", 4, 50, "signature_save")
+			move_name = "LAST LINE"
+
+	_tick_events.append({
+		"type": "signature_move",
+		"goblin": goblin.goblin_name,
+		"move": move_name,
+		"team": team_name,
+	})
+
+func _signature_tackle(goblin: GoblinData, gs: Dictionary) -> void:
+	## Defender signature: immediately attempts tackle on nearest opponent with ball.
+	if ball.owner == null or ball.owner == goblin:
+		return
+	var owner_gs: Dictionary = goblin_states.get(ball.owner, {})
+	if owner_gs.is_empty():
+		return
+	if _gb(owner_gs, "is_home") == _gb(gs, "is_home"):
+		return  # teammate has ball
+	var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), _gf(owner_gs, "x"), _gf(owner_gs, "y"))
+	if d > 0.20:
+		return  # too far for a signature tackle
+	# Guaranteed tackle contest with bonus
+	var tackle_stat: float = goblin.get_stat("defense") + goblin.get_stat("strength") * 0.5 + 3.0
+	var keep_stat: float = float(ball.owner.get_stat("speed")) + float(ball.owner.get_stat("strength")) * 0.5
+	var result: float = _stat_contest(tackle_stat, keep_stat,
+		float(goblin.get_stat("chaos")), float(ball.owner.get_stat("chaos")))
+	if result > 0.0:
+		var victim: GoblinData = ball.owner
+		_clear_ball_intent()
+		ball.set_loose(_gf(owner_gs, "x"), _gf(owner_gs, "y"))
+		_tick_events.append({"type": "dispossessed", "goblin": victim.goblin_name, "by": goblin.goblin_name})
+		_roll_tackle_injury(goblin, victim, false)
+
 func _move_all_goblins() -> void:
 	## Velocity-based movement: goblins accelerate/decelerate toward ideal_x/ideal_y
 	## with direction commitment to prevent twitch-corrections.
@@ -2458,6 +2552,7 @@ func _build_snapshot() -> Dictionary:
 			"facing": _gf(gs, "facing"),
 			"team": "home" if _gb(gs, "is_home") else "away",
 			"has_ball": ball.owner == goblin,
+			"ability_charge": _gf(gs, "ability_charge"),
 		})
 
 	return {

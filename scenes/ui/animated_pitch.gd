@@ -383,6 +383,11 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 		var target_center: Vector2 = _pitch_pos(float(gdata["x"]), float(gdata["y"]))
 		var target_pos: Vector2 = target_center - Vector2(token.TOKEN_RADIUS, token.TOKEN_RADIUS)
 		_raw_targets[goblin_name] = target_pos
+		# Update ability charge ring
+		var charge: float = float(gdata.get("ability_charge", 0.0))
+		if abs(token.ability_charge - charge) > 0.01:
+			token.ability_charge = charge
+			token.queue_redraw()
 		if bool(gdata.get("has_ball", false)):
 			new_owner_name = goblin_name
 

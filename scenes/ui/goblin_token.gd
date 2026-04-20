@@ -17,6 +17,7 @@ var base_position: Vector2 = Vector2.ZERO  # Home position (set by pitch)
 var highlighted: bool = false
 var has_ball: bool = false  # Ball carrier glow
 var targetable: bool = false  # Fireball targeting mode
+var ability_charge: float = 0.0  # 0-1, signature move fills up
 
 var _highlight_tween: Tween
 var _ball_glow_tween: Tween
@@ -127,6 +128,22 @@ func _draw() -> void:
 	# Circle border
 	var border_w: float = 2.0
 	draw_arc(center, TOKEN_RADIUS, 0, TAU, 32, Color(border_color.r, border_color.g, border_color.b, alpha), border_w)
+
+	# Ability charge ring (drawn on the border, fills clockwise)
+	if ability_charge > 0.01:
+		var charge_radius: float = TOKEN_RADIUS + 1.5
+		var charge_angle: float = TAU * ability_charge
+		var charge_start: float = -PI / 2.0  # start at top
+		var charge_color: Color
+		if ability_charge >= 0.9:
+			# Almost ready - pulsing bright
+			var pulse: float = 0.7 + sin(Time.get_ticks_msec() * 0.012) * 0.3
+			charge_color = Color(1.0, 0.95, 0.3, pulse)
+		elif ability_charge >= 0.5:
+			charge_color = Color(0.9, 0.75, 0.2, 0.9)
+		else:
+			charge_color = Color(0.5, 0.7, 0.9, 0.8)
+		draw_arc(center, charge_radius, charge_start, charge_start + charge_angle, 32, charge_color, 3.5)
 
 	# Ball carrier ring
 	if has_ball:
