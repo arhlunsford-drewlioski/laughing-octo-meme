@@ -77,20 +77,47 @@ func _make_goblin_card(g: GoblinData) -> PanelContainer:
 	pos_label.add_theme_color_override("font_color", status_color)
 	vbox.add_child(pos_label)
 
-	# Fatigue bar
+	# Fatigue bar (visual ProgressBar)
 	if g.fatigue > 0:
-		var fatigue_label := Label.new()
-		var bar := ""
-		for i in 10:
-			bar += "|" if i < g.fatigue else "."
-		var tired_text := "TIRED " if g.is_fatigued() else ""
-		fatigue_label.text = "%sFatigue: %s" % [tired_text, bar]
-		fatigue_label.add_theme_font_size_override("font_size", 13)
+		var fatigue_row := HBoxContainer.new()
+		fatigue_row.add_theme_constant_override("separation", 4)
+		vbox.add_child(fatigue_row)
+
+		var fatigue_text := Label.new()
+		fatigue_text.text = "TIRED" if g.is_fatigued() else "Tired"
+		fatigue_text.add_theme_font_size_override("font_size", 11)
+		fatigue_text.custom_minimum_size = Vector2(38, 0)
+		fatigue_text.add_theme_color_override("font_color",
+			Color.ORANGE if g.is_fatigued() else UITheme.CREAM_DIM)
+		fatigue_row.add_child(fatigue_text)
+
+		var bar := ProgressBar.new()
+		bar.custom_minimum_size = Vector2(0, 10)
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.max_value = 10.0
+		bar.value = float(g.fatigue)
+		bar.show_percentage = false
+		# Red when fatigued, yellow when getting there
+		var bar_style := StyleBoxFlat.new()
 		if g.is_fatigued():
-			fatigue_label.add_theme_color_override("font_color", Color.ORANGE)
+			bar_style.bg_color = Color(0.9, 0.3, 0.2)
+		elif g.fatigue >= 3:
+			bar_style.bg_color = Color(0.9, 0.7, 0.2)
 		else:
-			fatigue_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-		vbox.add_child(fatigue_label)
+			bar_style.bg_color = Color(0.3, 0.8, 0.4)
+		bar_style.corner_radius_top_left = 2
+		bar_style.corner_radius_top_right = 2
+		bar_style.corner_radius_bottom_left = 2
+		bar_style.corner_radius_bottom_right = 2
+		bar.add_theme_stylebox_override("fill", bar_style)
+		var bg_style := StyleBoxFlat.new()
+		bg_style.bg_color = Color(0.12, 0.12, 0.16)
+		bg_style.corner_radius_top_left = 2
+		bg_style.corner_radius_top_right = 2
+		bg_style.corner_radius_bottom_left = 2
+		bg_style.corner_radius_bottom_right = 2
+		bar.add_theme_stylebox_override("background", bg_style)
+		fatigue_row.add_child(bar)
 
 	# Stats line (get_stat already includes fatigue + injury + item bonuses)
 	var stats_text := "SH:%d SP:%d DE:%d ST:%d HP:%d CH:%d" % [
@@ -153,8 +180,7 @@ func _make_goblin_card(g: GoblinData) -> PanelContainer:
 
 func _show_stat_picker(g: GoblinData) -> void:
 	# Remove existing popup if any
-	if _level_up_popup and is_instance_valid(_level_up_popup):
-		_level_up_popup.queue_free()
+	_close_stat_picker()
 
 	# Build stat picker overlay
 	_level_up_popup = PanelContainer.new()
@@ -258,11 +284,35 @@ func _show_stat_picker(g: GoblinData) -> void:
 	cancel_btn.pressed.connect(_close_stat_picker)
 	popup_vbox.add_child(cancel_btn)
 
-	# Center the popup on screen
-	add_child(_level_up_popup)
-	_level_up_popup.set_anchors_preset(Control.PRESET_CENTER)
+	# Center the popup on screen via CanvasLayer overlay
+	var overlay := CanvasLayer.new()
+	overlay.name = "LevelUpOverlay"
+	overlay.layer = 100
+	add_child(overlay)
+
+	# Dark backdrop
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0, 0, 0, 0.7)
+	backdrop.anchor_right = 1.0
+	backdrop.anchor_bottom = 1.0
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(backdrop)
+
+	# Add popup to the overlay, anchored to screen center
+	overlay.add_child(_level_up_popup)
+	_level_up_popup.anchor_left = 0.5
+	_level_up_popup.anchor_right = 0.5
+	_level_up_popup.anchor_top = 0.5
+	_level_up_popup.anchor_bottom = 0.5
+	_level_up_popup.offset_left = -240
+	_level_up_popup.offset_right = 240
+	_level_up_popup.offset_top = -180
+	_level_up_popup.offset_bottom = 180
 	_level_up_popup.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_level_up_popup.grow_vertical = Control.GROW_DIRECTION_BOTH
+
+	# Store reference to overlay so we can remove it too
+	_level_up_popup.set_meta("overlay", overlay)
 
 func _on_stat_chosen(g: GoblinData, stat_name: String) -> void:
 	g.apply_stat_increase(stat_name)
@@ -273,7 +323,13 @@ func _on_stat_chosen(g: GoblinData, stat_name: String) -> void:
 
 func _close_stat_picker() -> void:
 	if _level_up_popup and is_instance_valid(_level_up_popup):
-		_level_up_popup.queue_free()
+		# Remove the overlay (which contains popup + backdrop)
+		if _level_up_popup.has_meta("overlay"):
+			var overlay: Node = _level_up_popup.get_meta("overlay")
+			if overlay and is_instance_valid(overlay):
+				overlay.queue_free()
+		else:
+			_level_up_popup.queue_free()
 		_level_up_popup = null
 
 func _on_goblin_toggled(g: GoblinData, btn: Button, panel: PanelContainer) -> void:

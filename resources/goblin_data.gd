@@ -53,12 +53,18 @@ func add_xp(amount: int) -> int:
 
 func apply_stat_increase(stat_name: String) -> bool:
 	## Player chose a stat to increase. Returns false if no pending level-ups.
+	## Also heals any injuries (reward for leveling up).
 	if pending_level_ups <= 0:
 		return false
 	if stat_name not in STAT_KEYS:
 		return false
 	set(stat_name, mini(get(stat_name) + 1, 10))
 	pending_level_ups -= 1
+	# Level up = fresh energy, injuries heal
+	if injury != InjuryState.HEALTHY and is_alive():
+		heal_injury()
+	# Also reduce fatigue a bit
+	fatigue = maxi(fatigue - 2, 0)
 	return true
 
 func has_pending_level_up() -> bool:

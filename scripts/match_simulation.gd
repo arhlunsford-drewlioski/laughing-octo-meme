@@ -1018,15 +1018,24 @@ func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool
 		injury_chance += 0.04
 	# Victim's health reduces injury chance
 	injury_chance -= float(victim.get_stat("health")) * 0.005
+	# KEEPERS are tough - big injury resistance
+	if victim.position == "keeper":
+		injury_chance *= 0.4  # 60% less likely to be hurt
 	injury_chance = maxf(injury_chance, 0.01)
 	if randf() >= injury_chance:
 		return
 
 	var severity_roll: float = randf()
 	var severity: int  # GoblinData.InjuryState
-	if severity_roll >= 0.98:
-		severity = GoblinData.InjuryState.DEAD  # ~2% of injuries are fatal
-	elif severity_roll >= 0.65:
+	# Keepers: lower chance of death, clamp severity
+	var death_threshold: float = 0.98
+	var major_threshold: float = 0.65
+	if victim.position == "keeper":
+		death_threshold = 0.995  # basically never die from tackles
+		major_threshold = 0.80   # mostly minor injuries
+	if severity_roll >= death_threshold:
+		severity = GoblinData.InjuryState.DEAD
+	elif severity_roll >= major_threshold:
 		severity = GoblinData.InjuryState.MAJOR
 	else:
 		severity = GoblinData.InjuryState.MINOR
@@ -1108,26 +1117,32 @@ func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
 			_tick_events.append({"type": "shield_block", "goblin": goblin.goblin_name})
 			continue
 
-		if d < FIREBALL_KILL_RADIUS:
-			# Direct hit - instant death
+		# Keepers take 50% less damage from fireball (tough bastards)
+		var is_keeper: bool = goblin.position == "keeper"
+
+		if d < FIREBALL_KILL_RADIUS and not is_keeper:
+			# Direct hit - instant death (except keepers)
 			goblin.apply_injury(GoblinData.InjuryState.DEAD)
 			_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
 			_remove_goblin_from_match(goblin)
+		elif d < FIREBALL_KILL_RADIUS and is_keeper:
+			# Keeper direct hit - major injury instead of death
+			goblin.apply_injury(GoblinData.InjuryState.MAJOR)
+			_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "major", "by": "FIREBALL"})
 		else:
 			# Blast zone - severity based on distance (closer = worse)
 			var intensity: float = 1.0 - (d - FIREBALL_KILL_RADIUS) / (FIREBALL_BLAST_RADIUS - FIREBALL_KILL_RADIUS)
+			if is_keeper:
+				intensity *= 0.5  # keepers tank the blast
 			var roll: float = randf()
-			if roll < intensity * 0.4:
-				# Kill
+			if roll < intensity * 0.4 and not is_keeper:
 				goblin.apply_injury(GoblinData.InjuryState.DEAD)
 				_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
 				_remove_goblin_from_match(goblin)
 			elif roll < intensity * 0.7:
-				# Major injury
 				goblin.apply_injury(GoblinData.InjuryState.MAJOR)
 				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "major", "by": "FIREBALL"})
 			else:
-				# Minor injury
 				goblin.apply_injury(GoblinData.InjuryState.MINOR)
 				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "minor", "by": "FIREBALL"})
 
@@ -1672,6 +1687,21 @@ func _update_ideal_positions() -> void:
 		# These bypass action_targets (which only last 1 tick and cause oscillation)
 		var goblin_role: int = coordinator.get_role(goblin)
 
+		# KEEPERS: stay in goal, only chase ball if extremely close to their goal line
+		if goblin.position == "keeper":
+			var own_goal_x: float = 0.05 if is_home else 0.95
+			# Only leave goal if ball is RIGHT on top of them (within 0.12 of goal)
+			var dist_to_goal_line: float = absf(ball.x - own_goal_x)
+			if is_loose and dist_to_goal_line < 0.12:
+				gs["ideal_x"] = ball.x
+				gs["ideal_y"] = ball.y
+				gs["sprinting"] = true
+				continue
+			# Otherwise: stay on goal line, track y
+			gs["ideal_x"] = _gf(gs, "home_x")
+			gs["ideal_y"] = clampf(lerpf(0.5, ball.y, 0.35), 0.36, 0.64)
+			continue
+
 		# LOOSE_CHASER: sprint directly at the ball - no zone restriction
 		if goblin_role == TeamCoordinator.Role.LOOSE_CHASER:
 			gs["ideal_x"] = ball.x
@@ -1680,7 +1710,7 @@ func _update_ideal_positions() -> void:
 			continue
 
 		# Nearby goblins also chase loose balls (not just the designated chaser)
-		if is_loose and goblin.position != "keeper":
+		if is_loose:
 			var dist_to_loose: float = sqrt((_gf(gs, "x") - ball.x) ** 2 + (_gf(gs, "y") - ball.y) ** 2)
 			if dist_to_loose < 0.15:
 				gs["ideal_x"] = ball.x

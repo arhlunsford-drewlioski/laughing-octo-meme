@@ -9,8 +9,8 @@ const GOLD_PER_GOAL: int = 10
 const GOLD_GOAL_CAP: int = 5
 
 # Healing costs
-const HEAL_MINOR_COST: int = 30
-const HEAL_MAJOR_COST: int = 80
+const HEAL_MINOR_COST: int = 15
+const HEAL_MAJOR_COST: int = 40
 
 # Recruitment costs
 const RECRUIT_COST_MIN: int = 60
@@ -94,8 +94,35 @@ func record_match_result(p_goals: int, o_goals: int) -> void:
 		return
 
 	var opp_idx := fixture.away_index if fixture.home_index == tournament.player_team_index else fixture.home_index
-	var won := p_goals > o_goals
+
+	# KNOCKOUT TIE RESOLUTION: penalty shootout (stat-weighted coin flip)
+	# In knockouts, ties can't stand - someone advances.
 	var drew := p_goals == o_goals
+	var shootout_happened: bool = false
+	if drew and tournament.stage != TournamentData.Stage.GROUP:
+		var player_team_ref := tournament.get_team(tournament.player_team_index)
+		var opp_team_ref := tournament.get_team(opp_idx)
+		var player_shooting: float = 0.0
+		var opp_shooting: float = 0.0
+		if player_team_ref:
+			for g in player_team_ref.roster:
+				if g.is_alive():
+					player_shooting += float(g.get_stat("shooting"))
+		if opp_team_ref:
+			for g in opp_team_ref.roster:
+				player_shooting += 0.0  # dummy to avoid unused warning
+				opp_shooting += float(g.get_stat("shooting"))
+		# Weighted coin flip - higher total shooting = better chance
+		var player_roll: float = randf() * (player_shooting + 1.0)
+		var opp_roll: float = randf() * (opp_shooting + 1.0)
+		if player_roll >= opp_roll:
+			p_goals += 1
+		else:
+			o_goals += 1
+		shootout_happened = true
+
+	var won := p_goals > o_goals
+	drew = p_goals == o_goals  # refresh after shootout
 
 	# Record in fixture
 	if fixture.home_index == tournament.player_team_index:
@@ -105,6 +132,8 @@ func record_match_result(p_goals: int, o_goals: int) -> void:
 		fixture.home_goals = o_goals
 		fixture.away_goals = p_goals
 	fixture.played = true
+	if shootout_happened:
+		fixture.set_meta("shootout", true)
 
 	# Update group standings if in group stage
 	if tournament.stage == TournamentData.Stage.GROUP:

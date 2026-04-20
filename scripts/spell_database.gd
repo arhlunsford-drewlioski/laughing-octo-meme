@@ -145,13 +145,13 @@ static func blood_pact() -> SpellData:
 
 static func all_spells() -> Array[SpellData]:
 	return [fireball(), lightning_bolt(), chain_lightning(), meteor(), earthquake(), rot_curse(),
-		shield_dome(), heal(), healing_wave(), resurrect(), counter_spell(), mass_protect(),
+		shield_dome(), heal(), healing_wave(), resurrect(), mass_protect(),
 		teleport(), clone(), mind_control(), swap(), rage_potion(),
 		haste(), dark_surge(), hex(), war_cry(), blood_pact()]
 
 static func starter_deck() -> Array[SpellData]:
 	## Starting deck: essentials for a sorcerer duel.
-	return [fireball(), shield_dome(), heal(), counter_spell(), haste()]
+	return [fireball(), shield_dome(), heal(), haste(), dark_surge()]
 
 static func shop_pool() -> Array[SpellData]:
 	## All spells available in shop.
