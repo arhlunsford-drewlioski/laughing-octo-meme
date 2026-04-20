@@ -59,9 +59,9 @@ func choreograph_result(event: Dictionary, result: Dictionary) -> void:
 # -- Event choreographies --
 
 func _choreograph_attack(is_player: bool, actor_name: String) -> void:
-	var ball := pitch.get_ball()
+	var ball = pitch.get_ball()
 	var target_zone := "attack" if is_player else "defense"
-	var target_x := pitch.PLAYER_X[target_zone] if is_player else pitch.OPPONENT_X["attack"]
+	var target_x = pitch.PLAYER_X[target_zone] if is_player else pitch.OPPONENT_X["attack"]
 
 	# Move ball toward the attacking third
 	var ball_target: Vector2 = pitch.get_zone_center(target_zone if is_player else "attack", not is_player if not is_player else true)
@@ -75,7 +75,7 @@ func _choreograph_attack(is_player: bool, actor_name: String) -> void:
 
 	# Shift the actor forward
 	if actor_name != "":
-		var token := pitch.get_goblin_token(actor_name)
+		var token = pitch.get_goblin_token(actor_name)
 		if token:
 			token.set_highlight(true)
 			var forward := Vector2(15.0 if is_player else -15.0, 0)
@@ -86,10 +86,10 @@ func _choreograph_attack(is_player: bool, actor_name: String) -> void:
 	await tween.finished
 
 func _choreograph_counter(actor_name: String) -> void:
-	var ball := pitch.get_ball()
+	var ball = pitch.get_ball()
 	# Fast sweep from defense to attack
-	var start := pitch.get_zone_center("defense", true)
-	var target := pitch.get_zone_center("attack", true)
+	var start = pitch.get_zone_center("defense", true)
+	var target = pitch.get_zone_center("attack", true)
 	target.y += randf_range(-25, 25)
 
 	pitch.set_ball_center(start)
@@ -100,7 +100,7 @@ func _choreograph_counter(actor_name: String) -> void:
 	).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
 
 	if actor_name != "":
-		var token := pitch.get_goblin_token(actor_name)
+		var token = pitch.get_goblin_token(actor_name)
 		if token:
 			token.set_highlight(true)
 			var forward := Vector2(20.0, 0)
@@ -111,8 +111,8 @@ func _choreograph_counter(actor_name: String) -> void:
 	await tween.finished
 
 func _choreograph_midfield() -> void:
-	var ball := pitch.get_ball()
-	var center := pitch.get_zone_center("midfield", true)
+	var ball = pitch.get_ball()
+	var center = pitch.get_zone_center("midfield", true)
 
 	# Ball oscillates around center
 	var tween := _create_tween()
@@ -139,12 +139,12 @@ func _choreograph_midfield() -> void:
 	await tween.finished
 
 func _choreograph_set_piece(side: String) -> void:
-	var ball := pitch.get_ball()
+	var ball = pitch.get_ball()
 	var is_player := side == "player"
 
 	# Ball placed near penalty area
 	var pen_zone := "attack" if is_player else "defense"
-	var target := pitch.get_zone_center(pen_zone, is_player)
+	var target = pitch.get_zone_center(pen_zone, is_player)
 	target.y += randf_range(-40, 40)
 
 	var tween := _create_tween()
@@ -169,8 +169,8 @@ func _choreograph_momentum_shift(side: String) -> void:
 # -- Result choreographies --
 
 func _choreograph_goal(is_player: bool, goblin_name: String) -> void:
-	var ball := pitch.get_ball()
-	var goal_pos := pitch.get_goal_mouth_pos(not is_player)  # Ball goes into OPPONENT's goal
+	var ball = pitch.get_ball()
+	var goal_pos = pitch.get_goal_mouth_pos(not is_player)  # Ball goes into OPPONENT's goal
 
 	# Ball into goal
 	var tween := _create_tween()
@@ -182,7 +182,7 @@ func _choreograph_goal(is_player: bool, goblin_name: String) -> void:
 
 	# Scorer celebration: scale bounce
 	if goblin_name != "":
-		var token := pitch.get_goblin_token(goblin_name)
+		var token = pitch.get_goblin_token(goblin_name)
 		if token:
 			var cel_tween := _create_tween()
 			cel_tween.tween_property(token, "scale", Vector2(1.4, 1.4), 0.15).set_ease(Tween.EASE_OUT)
@@ -196,17 +196,17 @@ func _choreograph_goal(is_player: bool, goblin_name: String) -> void:
 	await _brief_pause(0.3)
 
 func _choreograph_save(attacker_is_player: bool) -> void:
-	var ball := pitch.get_ball()
+	var ball = pitch.get_ball()
 	# Ball deflects away at an angle
 	var deflect_dir := Vector2(-40 if attacker_is_player else 40, randf_range(-30, 30))
-	var current := ball.position
+	var current = ball.position
 
 	var tween := _create_tween()
 	tween.tween_property(ball, "position", current + deflect_dir, 0.3).set_ease(Tween.EASE_OUT)
 
 	# Keeper glow
 	var keeper_side := not attacker_is_player
-	var keeper_tokens := pitch.get_all_player_tokens() if keeper_side else pitch.get_all_opponent_tokens()
+	var keeper_tokens = pitch.get_all_player_tokens() if keeper_side else pitch.get_all_opponent_tokens()
 	for token in keeper_tokens:
 		if token.zone == "goal":
 			tween.parallel().tween_property(token, "modulate", Color(0.5, 1.5, 0.5), 0.2)
@@ -215,10 +215,10 @@ func _choreograph_save(attacker_is_player: bool) -> void:
 	await tween.finished
 
 func _choreograph_miss(attacker_is_player: bool) -> void:
-	var ball := pitch.get_ball()
+	var ball = pitch.get_ball()
 	# Ball drifts past goal at an angle
 	var miss_offset := Vector2(30 if attacker_is_player else -30, randf_range(-50, 50))
-	var current := ball.position
+	var current = ball.position
 
 	var tween := _create_tween()
 	tween.tween_property(ball, "position", current + miss_offset, 0.4).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_LINEAR)
@@ -256,8 +256,8 @@ func _reset_all_tokens(duration: float) -> void:
 		tween.parallel().tween_property(token, "modulate", Color.WHITE, duration * 0.5)
 
 	# Return ball to center
-	var ball := pitch.get_ball()
-	var center := pitch.get_zone_center("midfield", true)
+	var ball = pitch.get_ball()
+	var center = pitch.get_zone_center("midfield", true)
 	tween.parallel().tween_property(ball, "position",
 		center - Vector2(pitch.BALL_RADIUS, pitch.BALL_RADIUS), duration
 	).set_ease(Tween.EASE_IN_OUT)
