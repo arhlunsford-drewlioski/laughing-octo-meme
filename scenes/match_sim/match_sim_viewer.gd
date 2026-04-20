@@ -36,7 +36,8 @@ var _wobble_active: bool = false
 var _wobble_x: float = 0.5
 var _wobble_y: float = 0.5
 var _wobble_time: float = 0.0
-var _wobble_intensity: float = 0.06  # how much the reticle drifts
+var _wobble_intensity: float = 0.025  # base wobble - much tighter now
+var _wobble_charge: float = 0.0       # grows while aiming - longer hold = more drift
 
 # Opponent casting UI
 var _counter_btn: Button = null
@@ -228,13 +229,25 @@ func _process(delta: float) -> void:
 
 	_update_pending_spell_resolutions(delta)
 
-	# Wobble aiming update (runs even when paused for targeting)
+	# Wobble aiming: reticle drifts around mouse cursor.
+	# Skill element - charge grows the longer you hold, making wobble bigger.
+	# Quick tap = tight shot, slow aim = wider drift.
 	if _wobble_active:
-		_wobble_time += delta * 3.0
-		_wobble_x += sin(_wobble_time * 2.7) * _wobble_intensity * delta * 2.0
-		_wobble_y += cos(_wobble_time * 3.1) * _wobble_intensity * delta * 2.0
-		_wobble_x = clampf(_wobble_x, 0.05, 0.95)
-		_wobble_y = clampf(_wobble_y, 0.08, 0.92)
+		_wobble_time += delta * 3.5
+		_wobble_charge = minf(_wobble_charge + delta * 0.6, 1.0)  # caps at 1.0 after ~1.7s
+		# Charge multiplier: 1.0x at start, 3.5x at max hold
+		var charge_mult: float = 1.0 + _wobble_charge * 2.5
+		var effective_wobble: float = _wobble_intensity * charge_mult
+
+		var mouse_pos: Vector2 = animated_pitch.get_local_mouse_position()
+		var pitch_pos: Vector2 = animated_pitch.screen_to_pitch(mouse_pos)
+		pitch_pos.x = clampf(pitch_pos.x, 0.05, 0.95)
+		pitch_pos.y = clampf(pitch_pos.y, 0.08, 0.92)
+
+		var wobble_offset_x: float = sin(_wobble_time * 2.7) * effective_wobble
+		var wobble_offset_y: float = cos(_wobble_time * 3.1) * effective_wobble
+		_wobble_x = clampf(pitch_pos.x + wobble_offset_x, 0.02, 0.98)
+		_wobble_y = clampf(pitch_pos.y + wobble_offset_y, 0.05, 0.95)
 		animated_pitch.set_wobble_reticle(_wobble_x, _wobble_y)
 
 	_tick_accumulator += delta * _speed_multiplier
@@ -387,10 +400,11 @@ func _start_wobble_targeting(hand_index: int) -> void:
 	_wobble_x = 0.5
 	_wobble_y = 0.5
 	_wobble_time = randf() * 10.0  # random start phase
+	_wobble_charge = 0.0  # start fresh - quick tap = accurate shot
 	animated_pitch._targeting_active = true
 	animated_pitch.set_team_targeting(true, false)
 	animated_pitch.set_team_targeting(false, false)
-	_log("[color=#ff6600][b]AIMING! Tap to fire at the wobbling reticle![/b][/color]")
+	_log("[color=#ff6600][b]AIMING! Aim with mouse, tap FAST for accurate shot![/b][/color]")
 	if hand_index < _spell_buttons.size():
 		_spell_buttons[hand_index].text = "CANCEL"
 
