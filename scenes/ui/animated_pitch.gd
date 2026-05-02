@@ -27,8 +27,20 @@ const PITCH_LINE := Color(1, 1, 1, 0.25)
 const PITCH_LINE_BOLD := Color(1, 1, 1, 0.35)
 const LETTERBOX_COLOR := Color(0.08, 0.08, 0.11)
 
+# Pitch background texture. If found, replaces the procedural stripes and lines.
+const PITCH_TEXTURE_PATH := "res://assets/pitch/battleground_01.png"
+# The painted play area inside the texture is inset from the texture edge
+# (the palisade fence + skull markers sit outside the playing field). These
+# values are the inset as a fraction of the TEXTURE size - tune by eye until
+# the painted goal/sideline lines hug the gameplay boundary. Larger = texture
+# scaled bigger so painted lines move outward toward _pitch_rect edge.
+const PITCH_TEXTURE_INSET_X := 0.10
+const PITCH_TEXTURE_INSET_Y := 0.13
+static var _pitch_texture: Texture2D = null
+static var _pitch_texture_loaded: bool = false
+
 # Ball
-const BALL_RADIUS := 5.0
+const BALL_RADIUS := 8.0
 const BALL_COLOR := Color(0.95, 0.95, 0.9)
 
 signal goblin_token_clicked(goblin_name: String)
@@ -66,7 +78,7 @@ const BALL_LERP_SPEED: float = 14.0     # ball moves crisply but visibly
 var _extra_ball_positions: Array = []  # [{x, y}] from snapshot
 var _extra_ball_lerped: Array = []     # [Vector2] screen positions for smooth rendering
 const EXTRA_BALL_COLOR := Color(1.0, 0.5, 0.1)  # orange chaos balls
-const EXTRA_BALL_RADIUS := 4.0
+const EXTRA_BALL_RADIUS := 6.0
 
 # Haste visual
 var _haste_active: bool = false
@@ -156,6 +168,35 @@ func _create_tokens() -> void:
 			_token_map[goblins[i].goblin_name] = token
 			_jitter_timers[token] = randf_range(1.0, 3.0)
 
+const BALL_SPRITE_PATH: String = "res://assets/ball.png"
+static var _ball_texture: Texture2D = null
+static var _ball_texture_loaded: bool = false
+
+static func _load_ball_texture() -> Texture2D:
+	if _ball_texture_loaded:
+		return _ball_texture
+	_ball_texture_loaded = true
+	# Strip near-magenta to alpha 0 (same convention as goblin sprites).
+	var img := Image.load_from_file(BALL_SPRITE_PATH)
+	if img == null:
+		_ball_texture = load(BALL_SPRITE_PATH) as Texture2D
+		return _ball_texture
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img.convert(Image.FORMAT_RGBA8)
+	var data: PackedByteArray = img.get_data()
+	var n: int = data.size()
+	var i: int = 0
+	while i < n:
+		var r: int = data[i]
+		var g: int = data[i + 1]
+		var b: int = data[i + 2]
+		if absi(r - 255) <= 80 and absi(g - 0) <= 80 and absi(b - 255) <= 80:
+			data[i + 3] = 0
+		i += 4
+	img.set_data(img.get_width(), img.get_height(), false, Image.FORMAT_RGBA8, data)
+	_ball_texture = ImageTexture.create_from_image(img)
+	return _ball_texture
+
 func _create_ball() -> void:
 	if _ball:
 		_ball.queue_free()
@@ -170,8 +211,17 @@ func _create_ball() -> void:
 	_ball.position = center - Vector2(BALL_RADIUS, BALL_RADIUS)
 
 func _draw_ball(ball_node: Control) -> void:
-	ball_node.draw_circle(Vector2(BALL_RADIUS, BALL_RADIUS), BALL_RADIUS, BALL_COLOR)
-	ball_node.draw_arc(Vector2(BALL_RADIUS, BALL_RADIUS), BALL_RADIUS, 0, TAU, 16, Color(0.3, 0.3, 0.3, 0.5), 1.0)
+	var tex: Texture2D = _load_ball_texture()
+	if tex != null:
+		# Sprite reads bigger than the physics radius - bump draw size for chunky vintage look.
+		var draw_size: float = BALL_RADIUS * 2.6
+		var rect := Rect2(
+			Vector2(BALL_RADIUS, BALL_RADIUS) - Vector2(draw_size * 0.5, draw_size * 0.5),
+			Vector2(draw_size, draw_size))
+		ball_node.draw_texture_rect(tex, rect, false)
+	else:
+		ball_node.draw_circle(Vector2(BALL_RADIUS, BALL_RADIUS), BALL_RADIUS, BALL_COLOR)
+		ball_node.draw_arc(Vector2(BALL_RADIUS, BALL_RADIUS), BALL_RADIUS, 0, TAU, 16, Color(0.3, 0.3, 0.3, 0.5), 1.0)
 
 func get_ball() -> Control:
 	return _ball
@@ -722,7 +772,24 @@ func _draw_pitch() -> void:
 	var ox: float = r.position.x
 	var oy: float = r.position.y
 
-	# Alternating grass stripes
+	# Texture mode: if a pitch background PNG exists, use it and skip procedural drawing.
+	if not _pitch_texture_loaded:
+		_pitch_texture_loaded = true
+		if ResourceLoader.exists(PITCH_TEXTURE_PATH):
+			_pitch_texture = load(PITCH_TEXTURE_PATH) as Texture2D
+	if _pitch_texture != null:
+		# Scale the texture so its painted play area aligns with _pitch_rect.
+		# play_area_w = drawn_w * (1 - 2*inset_x)  →  drawn_w = w / (1 - 2*inset_x)
+		var scale_x: float = 1.0 / (1.0 - 2.0 * PITCH_TEXTURE_INSET_X)
+		var scale_y: float = 1.0 / (1.0 - 2.0 * PITCH_TEXTURE_INSET_Y)
+		var dw: float = w * scale_x
+		var dh: float = h * scale_y
+		# Center the (larger) drawn rect on _pitch_rect's center.
+		var dest := Rect2(ox - (dw - w) * 0.5, oy - (dh - h) * 0.5, dw, dh)
+		draw_texture_rect(_pitch_texture, dest, false)
+		return
+
+	# Alternating grass stripes (procedural fallback)
 	var stripe_count: int = 14
 	var stripe_w: float = w / stripe_count
 	for i in stripe_count:

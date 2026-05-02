@@ -43,10 +43,8 @@ func _refresh() -> void:
 	var fixture := RunManager.tournament.get_next_player_fixture()
 	if fixture:
 		var opp_name := RunManager.get_current_opponent_name()
-		var opp_faction := RunManager.get_current_opponent_faction()
-		var faction_info := FactionSystem.get_faction_info(opp_faction)
-		opponent_label.text = "Next: " + opp_name + " (" + faction_info["name"] + ")"
-		opponent_label.add_theme_color_override("font_color", faction_info["color"])
+		opponent_label.text = "Next: " + opp_name
+		opponent_label.add_theme_color_override("font_color", UITheme.CREAM)
 		opponent_label.add_theme_font_size_override("font_size", 15)
 		next_match_btn.visible = true
 		next_match_btn.disabled = false
@@ -153,9 +151,7 @@ func _add_group_table(group: GroupData, is_player_group: bool) -> void:
 		elif i < 2 and group.get_sorted_standings()[0].played >= 3:
 			row.add_theme_color_override("font_color", UITheme.BLUE)
 		else:
-			# Faction-colored team name
-			var faction_info := FactionSystem.get_faction_info(team.faction)
-			row.add_theme_color_override("font_color", faction_info["color"])
+			row.add_theme_color_override("font_color", UITheme.CREAM)
 
 		row_panel.add_child(row)
 

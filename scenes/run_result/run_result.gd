@@ -35,9 +35,7 @@ func _display_results() -> void:
 	details_label.append_text("[center]")
 	for i in range(RunManager.match_results.size()):
 		var result: Dictionary = RunManager.match_results[i]
-		var opp_info := FactionSystem.get_faction_info(result["opponent_faction"])
-		var opp_color := opp_info["color"] as Color
-		var color_hex := opp_color.to_html(false)
+		var opp_name: String = str(result.get("opponent_name", "?"))
 		var outcome: String
 		if result["won"]:
 			outcome = "[color=green]W[/color]"
@@ -46,15 +44,13 @@ func _display_results() -> void:
 		details_label.append_text(
 			"[color=#" + dim_hex + "]Match " + str(i + 1) + ":[/color] " + outcome +
 			"  " + str(result["player_goals"]) + "-" + str(result["opponent_goals"]) +
-			"  vs [color=#" + color_hex + "]" + opp_info["name"] + "[/color]" +
-			" [color=#" + dim_hex + "](" + opp_info["style"] + ")[/color]\n"
+			"  vs [color=#" + cream_hex + "]" + opp_name + "[/color]\n"
 		)
 
-	details_label.append_text("\n[color=#" + cream_hex + "]Final spells: " + str(RunManager.run_spell_deck.size()) + "[/color]")
+	if RunManager.run_spellbook != null:
+		details_label.append_text("\n[color=#" + cream_hex + "]Spellbook: " + RunManager.run_spellbook.book_name +
+			" (" + str(RunManager.run_spellbook.pages.size()) + " pages bound)[/color]")
 
-	var p_info := FactionSystem.get_faction_info(RunManager.player_faction)
-	if RunManager.player_faction != FactionSystem.Faction.NONE:
-		details_label.append_text("\n[color=#" + cream_hex + "]Your faction: " + p_info["name"] + "[/color]")
 	details_label.append_text("[/center]")
 
 func _on_new_run() -> void:

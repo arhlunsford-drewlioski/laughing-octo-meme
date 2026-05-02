@@ -13,6 +13,18 @@ var deck: Array[SpellData] = []
 var hand: Array[SpellData] = []
 var mana: float = 0.0
 
+# Signature spell mode: the wizard has one spell (their spellbook). It's always
+# in hand; casting drains mana and starts a per-spell cooldown but does NOT
+# consume the card. When the cooldown elapses the spell becomes castable again.
+var signature_mode: bool = false
+var signature_spell: SpellData = null
+var signature_cooldown_remaining: float = 0.0
+const _COOLDOWN_TICK: float = 0.1  # seconds shaved per tick (matches mana regen cadence)
+
+# No-spells mode: pure sim, no player or opponent casting. Used by SPELL TEST
+# MATCH (renamed in spirit) and any "just watch the soccer" entry point.
+var disabled: bool = false
+
 var opponent_hand: Array[SpellData] = []
 var opponent_mana: float = 0.0
 var opponent_archetype: Dictionary = {}  # the archetype info for this match
@@ -56,7 +68,57 @@ func setup(spell_deck: Array[SpellData], opponent_spells: Array[SpellData] = [])
 	_opponent_cast_ticks = 0
 	_opponent_cooldown = 4.5
 	opponent_mana = 4.0
+	signature_mode = false
+	signature_spell = null
+	signature_cooldown_remaining = 0.0
 	_draw_hand()
+	_draw_opponent_hand(opponent_spells)
+
+func setup_disabled() -> void:
+	## Pure-sim mode: no spells for either side. Locks the system so callers
+	## that still tick() / try_opponent_cast() / can_cast() are no-ops.
+	deck.clear()
+	hand.clear()
+	opponent_hand.clear()
+	mana = 0.0
+	opponent_mana = 0.0
+	blood_pact_targets.clear()
+	dark_ascension_targets.clear()
+	curse_charges = 0
+	active_domes.clear()
+	opponent_casting = false
+	opponent_cast_ready = false
+	opponent_cast_spell = null
+	signature_mode = false
+	signature_spell = null
+	signature_cooldown_remaining = 0.0
+	opponent_archetype = {}
+	opponent_archetype_name = ""
+	disabled = true
+
+func setup_signature(spell: SpellData, opponent_spells: Array[SpellData] = []) -> void:
+	## Spellbook mode: one spell, always in hand, cooldown-gated instead of consumed.
+	deck.clear()
+	hand.clear()
+	mana = 4.0
+	blood_pact_targets.clear()
+	dark_ascension_targets.clear()
+	curse_charges = 0
+	active_domes.clear()
+	opponent_casting = false
+	opponent_cast_ready = false
+	opponent_cast_spell = null
+	opponent_cast_progress = 0.0
+	opponent_cast_target_goblin = null
+	_opponent_cast_ticks = 0
+	_opponent_cooldown = 4.5
+	opponent_mana = 4.0
+
+	signature_mode = true
+	signature_spell = spell
+	signature_cooldown_remaining = 0.0
+	if spell != null:
+		hand.append(spell)
 	_draw_opponent_hand(opponent_spells)
 
 func _draw_hand() -> void:
@@ -109,8 +171,13 @@ func _roll_opponent_profile() -> Dictionary:
 	}
 
 func tick() -> void:
+	if disabled:
+		return
 	mana = minf(mana + MANA_REGEN_PER_TICK, MAX_MANA)
 	opponent_mana = minf(opponent_mana + MANA_REGEN_PER_TICK, MAX_MANA)
+
+	if signature_mode and signature_cooldown_remaining > 0.0:
+		signature_cooldown_remaining = maxf(signature_cooldown_remaining - _COOLDOWN_TICK, 0.0)
 
 	var expired_domes: Array[int] = []
 	for i in range(active_domes.size()):
@@ -133,7 +200,11 @@ func tick() -> void:
 			opponent_cast_ready = true
 
 func can_cast(index: int) -> bool:
+	if disabled:
+		return false
 	if index < 0 or index >= hand.size():
+		return false
+	if signature_mode and signature_cooldown_remaining > 0.0:
 		return false
 	return hand[index].mana_cost <= mana
 
@@ -142,7 +213,11 @@ func cast(index: int) -> SpellData:
 		return null
 	var spell := hand[index]
 	mana -= spell.mana_cost
-	hand.remove_at(index)
+	if signature_mode:
+		# Spellbook spell stays in hand; cooldown gates the next cast.
+		signature_cooldown_remaining = spell.cooldown
+	else:
+		hand.remove_at(index)
 	return spell
 
 func clear_opponent_cast() -> void:
@@ -184,6 +259,8 @@ func is_goblin_protected(goblin: GoblinData, goblin_states: Dictionary) -> bool:
 
 func try_opponent_cast(home_formation: Formation, away_formation: Formation,
 		goblin_states: Dictionary) -> void:
+	if disabled:
+		return
 	if opponent_casting or opponent_cast_ready or _opponent_cooldown > 0.0:
 		return
 	if opponent_hand.is_empty():

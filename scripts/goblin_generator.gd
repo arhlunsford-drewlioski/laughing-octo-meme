@@ -66,15 +66,15 @@ const PERSONALITIES: Array[String] = [
 # ── Position pools per zone (for balanced team generation) ───────────────
 
 const ATTACK_POSITIONS: Array[String] = [
-	"striker", "winger", "trequartista", "poacher", "shadow_striker", "false_nine",
+	"attacker", "attacker", "chaos",  # bias toward attacker; chaos is the wildcard
 ]
 
 const MIDFIELD_POSITIONS: Array[String] = [
-	"midfielder", "playmaker", "box_to_box", "attacking_mid",
+	"midfielder",
 ]
 
 const DEFENSE_POSITIONS: Array[String] = [
-	"sweeper", "enforcer", "anchor", "wing_back",
+	"defender",
 ]
 
 # ── Generation ───────────────────────────────────────────────────────────────

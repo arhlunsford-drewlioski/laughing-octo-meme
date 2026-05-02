@@ -194,14 +194,17 @@ func _setup_and_start() -> void:
 	for g in player_roster:
 		_perf[g.goblin_name] = {"goals": 0, "assists": 0, "tackles": 0, "take_ons": 0, "interceptions": 0, "saves": 0}
 
-	# Init spell system
+	# Init spell system. Tournament runs use the spellbook; the standalone
+	# SPELL TEST MATCH (and any non-run quick-play) gets pure soccer with no
+	# spells on either side - just the sim.
 	_spell_system = SpellSystem.new()
-	var spell_deck: Array[SpellData]
-	if RunManager.run_active and RunManager.run_spell_deck.size() > 0:
-		spell_deck = RunManager.run_spell_deck
+	if RunManager.run_active and RunManager.run_spellbook != null:
+		_spell_system.setup_signature(RunManager.get_modified_spell())
 	else:
-		spell_deck = SpellDatabase.starter_deck()
-	_spell_system.setup(spell_deck)
+		_spell_system.setup_disabled()
+	if _spell_system.disabled:
+		_mana_label.visible = false
+		_spell_container.visible = false
 	_build_spell_hand_ui()
 	_refresh_mana()
 
@@ -220,7 +223,8 @@ func _setup_and_start() -> void:
 		var opp_name := RunManager.get_current_opponent_name()
 		var stage := RunManager.get_stage_name()
 		_log("[color=yellow]%s - vs %s[/color]" % [stage, opp_name])
-	_log("[color=#ff9966]%s enters the touchline circle.[/color]" % _spell_system.opponent_archetype_name)
+	if not _spell_system.disabled and _spell_system.opponent_archetype_name != "":
+		_log("[color=#ff9966]%s enters the touchline circle.[/color]" % _spell_system.opponent_archetype_name)
 	_log("[color=yellow]KICK OFF[/color]")
 
 func _process(delta: float) -> void:
@@ -1143,7 +1147,7 @@ func _award_xp() -> void:
 
 func _on_back_pressed() -> void:
 	if RunManager.run_active and sim != null and sim.is_match_over():
-		get_tree().change_scene_to_file("res://scenes/screens/shop.tscn")
+		get_tree().change_scene_to_file("res://scenes/reward/reward.tscn")
 	elif sim != null and sim.is_match_over() and not RunManager.run_active:
 		# Quick-play: replay another match immediately
 		get_tree().reload_current_scene()

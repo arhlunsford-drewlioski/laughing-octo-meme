@@ -18,3 +18,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Godot headless log dumps
+godot-*.log

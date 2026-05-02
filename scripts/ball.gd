@@ -28,11 +28,11 @@ var aerial: bool = false  # true when ball is in the air (long pass, cross, shot
 
 # ── State Transitions ───────────────────────────────────────────────────────
 
-func set_controlled(goblin: GoblinData, gx: float, gy: float) -> void:
+func set_controlled(goblin: GoblinData, _gx: float, _gy: float) -> void:
+	## Don't snap position - the simulation tick will smoothly draw the ball
+	## toward the owner's feet over a few frames, preserving incoming momentum.
 	state = BallState.CONTROLLED
 	owner = goblin
-	x = gx
-	y = gy
 	vx = 0.0
 	vy = 0.0
 	loose_timer = 0.0
@@ -49,11 +49,17 @@ func set_loose(lx: float, ly: float) -> void:
 	aerial = false
 
 func set_kicked(from_x: float, from_y: float, to_x: float, to_y: float, speed: float, friction: float = GROUND_FRICTION, is_aerial: bool = false) -> void:
-	## Kick ball with velocity toward target point at given speed.
+	## Kick ball with velocity toward target. Direction is computed from the
+	## kicker's position; the ball's actual x/y is NOT reset, so passes flow
+	## out of the carry instead of snapping back to the kicker's center.
 	state = BallState.TRAVELLING
 	owner = null
-	x = from_x
-	y = from_y
+	# If the ball is unreasonably far from the kicker (rare), pull it to them.
+	var stray_dx: float = x - from_x
+	var stray_dy: float = y - from_y
+	if sqrt(stray_dx * stray_dx + stray_dy * stray_dy) > 0.06:
+		x = from_x
+		y = from_y
 	var dx: float = to_x - from_x
 	var dy: float = to_y - from_y
 	var dist: float = sqrt(dx * dx + dy * dy)

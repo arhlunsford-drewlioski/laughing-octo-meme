@@ -70,6 +70,11 @@ static func healing_wave() -> SpellData:
 		2, SpellData.TargetType.NONE, {}, "healing_wave", 0.0, false,
 		SpellData.Rarity.UNCOMMON, 35)
 
+static func divine_light() -> SpellData:
+	return make_spell("Divine Light", "Bathes allies in light - heals injuries and grants +2 defense for 20s.",
+		2, SpellData.TargetType.ALL_ALLIES, {"defense": 2}, "divine_light", 20.0, false,
+		SpellData.Rarity.UNCOMMON, 40)
+
 static func resurrect() -> SpellData:
 	return make_spell("Resurrect", "Revive a dead goblin at half stats. This match only.",
 		4, SpellData.TargetType.NONE, {}, "resurrect", 0.0, false,

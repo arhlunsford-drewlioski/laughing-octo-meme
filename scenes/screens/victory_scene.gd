@@ -116,12 +116,12 @@ func _display_victory() -> void:
 		)
 
 	stats_label.append_text("\n[color=#" + gold_hex + "]Total goals scored: " + str(total_goals) + "[/color]\n")
-	stats_label.append_text("[color=#" + cream_hex + "]Final spells: " + str(RunManager.run_spell_deck.size()) + "[/color]\n")
+	if RunManager.run_spellbook != null:
+		stats_label.append_text("[color=#" + cream_hex + "]Spellbook: " + RunManager.run_spellbook.book_name +
+			" (" + str(RunManager.run_spellbook.pages.size()) + " pages bound)[/color]\n")
 	stats_label.append_text("[color=#" + cream_hex + "]Gold earned: " + str(RunManager.gold) + "[/color]\n")
 
-	var p_info := FactionSystem.get_faction_info(RunManager.player_faction)
-	if RunManager.player_faction != FactionSystem.Faction.NONE:
-		stats_label.append_text("[color=#" + cream_hex + "]Your faction: " + p_info["name"] + "[/color]\n")
+	# Faction line removed - factions no longer used.
 
 	stats_label.append_text("\n[color=#" + gold_hex + "]-- YOUR GOBLINS ARE LEGENDS --[/color]\n\n")
 

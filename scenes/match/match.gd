@@ -381,7 +381,7 @@ func _end_match() -> void:
 
 func _on_play_again_pressed() -> void:
 	if RunManager.run_active:
-		get_tree().change_scene_to_file("res://scenes/screens/shop.tscn")
+		get_tree().change_scene_to_file("res://scenes/reward/reward.tscn")
 	else:
 		get_tree().change_scene_to_file("res://scenes/draft/draft.tscn")
 

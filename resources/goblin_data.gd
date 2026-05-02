@@ -16,7 +16,7 @@ extends Resource
 @export_range(1, 10) var chaos: int = 3
 
 # ── Position ──────────────────────────────────────────────────────────────────
-## Position key from PositionDatabase (e.g. "striker", "enforcer", "keeper")
+## Position key from PositionDatabase: "keeper", "defender", "midfielder", "attacker", "chaos"
 @export var position: String = "midfielder"
 
 # ── Equipment (1 item slot) ──────────────────────────────────────────────────
@@ -98,7 +98,16 @@ func get_stat(stat_name: String) -> int:
 	var buff: int = _get_effect_modifier(stat_name)
 	var fatigue_penalty: int = _get_fatigue_penalty(stat_name)
 	var item_bonus: int = _get_item_bonus(stat_name)
-	return clampi(base + penalty + buff + fatigue_penalty + item_bonus, 1, 15)
+	var role_bonus: int = _get_role_bonus(stat_name)
+	return clampi(base + penalty + buff + fatigue_penalty + item_bonus + role_bonus, 1, 15)
+
+func _get_role_bonus(stat_name: String) -> int:
+	## Intrinsic role bonuses. Keepers get a foundational +2 defense and +2 health
+	## so they're consistently the wall in the box without needing build dependency.
+	if position == "keeper":
+		if stat_name == "defense" or stat_name == "health":
+			return 2
+	return 0
 
 func get_stat_dict() -> Dictionary:
 	var d := {}

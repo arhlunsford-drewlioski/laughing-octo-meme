@@ -206,19 +206,11 @@ func _update_count() -> void:
 	count_label.text = "%d / %d selected" % [selected.size(), TEAM_SIZE]
 	start_btn.disabled = selected.size() != TEAM_SIZE
 
-	if selected.size() > 0:
-		var faction := FactionSystem.get_majority_faction(selected)
-		if faction != FactionSystem.Faction.NONE:
-			var info := FactionSystem.get_faction_info(faction)
-			faction_label.text = info["name"] + " - " + info["style"]
-			faction_label.add_theme_color_override("font_color", info["color"])
-		else:
-			faction_label.text = "Mixed squad (no faction majority)"
-			faction_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-	else:
-		faction_label.text = ""
+	# Faction system removed - keep the label hidden/empty.
+	faction_label.text = ""
+	faction_label.visible = false
 
 func _on_start_match() -> void:
 	GameManager.selected_roster = selected.duplicate()
-	RunManager.start_tournament(selected.duplicate())
-	get_tree().change_scene_to_file("res://scenes/screens/tournament_hub.tscn")
+	# Tournament starts after the player picks their spellbook.
+	get_tree().change_scene_to_file("res://scenes/screens/book_select.tscn")

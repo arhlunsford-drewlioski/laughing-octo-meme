@@ -29,23 +29,39 @@ var tournament: TournamentData = null
 # Faction state
 var player_faction: int = 0
 
-# Spell deck across matches
-var run_spell_deck: Array[SpellData] = []
+# Spellbook chosen at run start. The wizard's signature spell + accumulated pages.
+var run_spellbook: SpellbookData = null
+
+# Legacy: kept as a derived shim so older screens (sim_log, victory_scene, old shop)
+# don't crash while we phase them out. Always reflects the current spellbook.
+var run_spell_deck: Array[SpellData]:
+	get:
+		if run_spellbook == null:
+			return []
+		var spell := run_spellbook.get_modified_spell()
+		if spell == null:
+			return []
+		var arr: Array[SpellData] = [spell]
+		return arr
+	set(_value):
+		pass  # writes ignored; spellbook is the source of truth now
 
 # Match results history
 var match_results: Array[Dictionary] = []
 
 signal gold_changed(new_gold: int)
 
-func start_tournament(roster: Array[GoblinData]) -> void:
+func start_tournament(roster: Array[GoblinData], chosen_book: SpellbookData = null) -> void:
 	run_active = true
 	gold = 0
 	match_results.clear()
 
-	player_faction = FactionSystem.get_majority_faction(roster)
-	run_spell_deck = SpellDatabase.starter_deck()
+	# Factions removed - opponent identity now comes from sorcerer archetype.
+	player_faction = 0
+	# If no book chosen (legacy entry points), default to fireball.
+	run_spellbook = chosen_book if chosen_book != null else SpellbookDatabase.fireball_book()
 
-	tournament = TeamGenerator.generate_tournament(roster, player_faction)
+	tournament = TeamGenerator.generate_tournament(roster, 0)
 
 func get_current_opponent_roster() -> Array[GoblinData]:
 	if not tournament:
@@ -234,6 +250,8 @@ func advance_tournament() -> void:
 				if tournament.player_team_index not in qualified:
 					# Player eliminated in group stage
 					return
+			# Reward for surviving the group stage: minor injuries clear, fatigue drops.
+			_post_group_stage_heal()
 			tournament.advance_to_knockouts()
 			_simulate_non_player_knockout_matches()
 	else:
@@ -241,6 +259,18 @@ func advance_tournament() -> void:
 		tournament.advance_bracket_round()
 		if tournament.stage != TournamentData.Stage.COMPLETE:
 			_simulate_non_player_knockout_matches()
+
+func _post_group_stage_heal() -> void:
+	## After surviving the group stage: minor injuries heal, fatigue drops by half.
+	var team := tournament.get_team(tournament.player_team_index) if tournament else null
+	if team == null:
+		return
+	for g in team.roster:
+		if not g.is_alive():
+			continue
+		if g.injury == GoblinData.InjuryState.MINOR:
+			g.heal_injury()
+		g.fatigue = maxi(g.fatigue / 2, 0)
 
 func _simulate_non_player_knockout_matches() -> void:
 	## Simulate all knockout fixtures that don't involve the player in the current round.
@@ -312,12 +342,36 @@ func spend_gold(amount: int) -> bool:
 	gold_changed.emit(gold)
 	return true
 
-func add_spell_card(spell: SpellData) -> void:
-	run_spell_deck.append(spell)
+## Add a page to the current spellbook. Returns true if added (slot available).
+func add_page(page: SpellPage) -> bool:
+	if run_spellbook == null or page == null:
+		return false
+	return run_spellbook.add_page(page)
 
-func remove_spell_card(index: int) -> void:
-	if index >= 0 and index < run_spell_deck.size():
-		run_spell_deck.remove_at(index)
+func can_buy_page(page: SpellPage) -> bool:
+	if run_spellbook == null or page == null:
+		return false
+	return gold >= page.gold_cost and run_spellbook.can_add_page()
+
+func buy_page(page: SpellPage) -> bool:
+	if not can_buy_page(page):
+		return false
+	if not spend_gold(page.gold_cost):
+		return false
+	return run_spellbook.add_page(page)
+
+## Returns the wizard's signature spell with all pages baked in. May be null if no book.
+func get_modified_spell() -> SpellData:
+	if run_spellbook == null:
+		return null
+	return run_spellbook.get_modified_spell()
+
+# ── Legacy shims (no-ops; kept so old screens don't error during phaseout) ──
+func add_spell_card(_spell: SpellData) -> void:
+	pass
+
+func remove_spell_card(_index: int) -> void:
+	pass
 
 func get_player_roster() -> Array[GoblinData]:
 	if tournament:
@@ -335,6 +389,6 @@ func reset_run() -> void:
 	run_active = false
 	gold = 0
 	player_faction = 0
-	run_spell_deck.clear()
+	run_spellbook = null
 	match_results.clear()
 	tournament = null

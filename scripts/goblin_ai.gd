@@ -72,42 +72,54 @@ static func _sf(goblin: GoblinData, stat_name: String) -> float:
 static func _is_pos(goblin: GoblinData, positions: Array) -> bool:
 	return positions.has(goblin.position)
 
+static func _role(goblin: GoblinData) -> String:
+	## Resolve goblin position to one of the 5 roles, handling legacy aliases.
+	return PositionDatabase.resolve_key(goblin.position)
+
 static func _shooting_bias(ctx: Context) -> float:
 	var bias: float = _sf(ctx.goblin, "shooting") * 0.18 + _sf(ctx.goblin, "strength") * 0.04 + _sf(ctx.goblin, "chaos") * 0.03
-	if _is_pos(ctx.goblin, ["striker", "poacher", "shadow_striker"]):
-		bias += 0.90
-	elif _is_pos(ctx.goblin, ["attacking_mid", "trequartista"]):
-		bias += 0.60
-	elif _is_pos(ctx.goblin, ["winger", "playmaker"]):
-		bias += 0.20
-	elif _is_pos(ctx.goblin, ["anchor", "sweeper", "enforcer", "wing_back"]):
-		bias -= 0.55
+	match _role(ctx.goblin):
+		"attacker":
+			bias += 0.90
+		"chaos":
+			bias += 0.55  # chaos shoots, but inconsistently - main bias is fly_kick handler
+		"midfielder":
+			bias += 0.10
+		"defender":
+			bias -= 0.55
 	return bias
 
 static func _dribble_bias(ctx: Context) -> float:
 	var bias: float = _sf(ctx.goblin, "speed") * 0.16 + _sf(ctx.goblin, "chaos") * 0.10
-	if _is_pos(ctx.goblin, ["winger", "shadow_striker", "trequartista", "striker"]):
-		bias += 0.75
-	elif _is_pos(ctx.goblin, ["playmaker", "attacking_mid", "wing_back"]):
-		bias += 0.35
-	elif _is_pos(ctx.goblin, ["target_man", "anchor", "sweeper", "enforcer"]):
-		bias -= 0.45
+	match _role(ctx.goblin):
+		"chaos":
+			bias += 0.75
+		"attacker":
+			bias += 0.55
+		"midfielder":
+			bias += 0.20
+		"defender":
+			bias -= 0.45
 	return bias
 
 static func _hold_up_bias(ctx: Context) -> float:
 	var bias: float = _sf(ctx.goblin, "strength") * 0.16 + _sf(ctx.goblin, "defense") * 0.05
-	if _is_pos(ctx.goblin, ["target_man", "false_nine"]):
-		bias += 0.90
-	elif _is_pos(ctx.goblin, ["poacher", "shadow_striker"]):
-		bias -= 0.20
+	match _role(ctx.goblin):
+		"attacker":
+			bias += 0.40
+		"chaos":
+			bias -= 0.50  # chaos doesn't hold up - it launches itself
 	return bias
 
 static func _pass_risk_bias(ctx: Context) -> float:
 	var bias: float = _sf(ctx.goblin, "chaos") * 0.14 + _sf(ctx.goblin, "shooting") * 0.04
-	if _is_pos(ctx.goblin, ["playmaker", "trequartista", "false_nine", "attacking_mid"]):
-		bias += 0.70
-	elif _is_pos(ctx.goblin, ["anchor", "sweeper", "enforcer"]):
-		bias -= 0.45
+	match _role(ctx.goblin):
+		"chaos":
+			bias += 0.85  # wild through balls into nothing
+		"midfielder":
+			bias += 0.40
+		"defender":
+			bias -= 0.45
 	return bias
 
 # ── Main Decision Entry ─────────────────────────────────────────────────────
@@ -223,14 +235,48 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 
 	# How much pressure? Count opponents nearby
 	var nearest_opp_dist: float = 999.0
+	var pressers_close: int = 0
 	for opp in ctx.opponents:
 		var d: float = _dist(ctx.goblin_x, ctx.goblin_y, _df(opp, "x"), _df(opp, "y"))
 		if d < nearest_opp_dist:
 			nearest_opp_dist = d
+		if d < 0.18:
+			pressers_close += 1
 	var under_heavy_pressure: bool = nearest_opp_dist < 0.12
 	var under_pressure: bool = nearest_opp_dist < 0.18
 	var still_settling: bool = ctx.ball_control_time < ctx.settle_time
 	var in_own_third: bool = (ctx.is_home and ctx.goblin_x < 0.35) or (not ctx.is_home and ctx.goblin_x > 0.65)
+
+	# ── U10 PANIC CLEARANCE ──
+	# Defenders in own third with 2+ pressers will sometimes just hoof the ball anywhere
+	# upfield. This is the "uhh, get it out!" energy of kids' soccer.
+	var role_now: String = _role(ctx.goblin)
+	var is_defender_pos: bool = role_now == "keeper" or role_now == "defender"
+	if is_defender_pos and in_own_third and pressers_close >= 2 and not still_settling:
+		var panic_chance: float = 0.35 + _sf(ctx.goblin, "chaos") * 0.04 - _sf(ctx.goblin, "defense") * 0.02
+		panic_chance = clampf(panic_chance, 0.15, 0.75)
+		if randf() < panic_chance:
+			# Random y so the clearance goes anywhere - that's the chaos.
+			return Decision.new(Action.CLEAR,
+				ctx.goblin_x + fwd_dir * 0.45,
+				clampf(randf_range(0.10, 0.90), 0.0, 1.0))
+
+	# ── FLY-KICK ──
+	# Chaos goblins in the attacking half take a wild leaping volley at the ball.
+	# Massive y-variance means the ball usually flies into nothing, occasionally
+	# crashes in for a goal. This is the highlight reel.
+	if role_now == "chaos" and not still_settling:
+		var in_attacking_half: bool = (ctx.is_home and ctx.goblin_x > 0.45) or (not ctx.is_home and ctx.goblin_x < 0.55)
+		if in_attacking_half:
+			var fly_chance: float = 0.18 + _sf(ctx.goblin, "chaos") * 0.025
+			# Closer to goal → fly-kick more (it's a shooting position).
+			if dist_to_goal < 0.45:
+				fly_chance += 0.20
+			fly_chance = clampf(fly_chance, 0.08, 0.65)
+			if randf() < fly_chance:
+				# Aim at goal, but with WIDE y-variance. Sometimes scores. Mostly chaos.
+				var fly_y: float = clampf(randf_range(0.10, 0.90), 0.05, 0.95)
+				return Decision.new(Action.SHOOT, goal_x, fly_y)
 	var in_final_third: bool = dist_to_goal < 0.35
 	var stale_possession: bool = ctx.stale_possession_time >= 2.4 or (ctx.ball_control_time >= 1.8 and ctx.team_possession_time >= 2.0)
 	var very_stale: bool = ctx.stale_possession_time >= 4.8 or (ctx.ball_control_time >= 2.8 and ctx.team_possession_time >= 3.5)
@@ -365,7 +411,7 @@ static func _decide_with_ball(ctx: Context, _pos_data: Dictionary) -> Decision:
 		return Decision.new(Action.DRIBBLE, dt2.x, dt2.y)
 
 	# Defenders in own third: pass it out quickly (don't dribble near own goal)
-	if in_own_third and _is_pos(ctx.goblin, ["anchor", "sweeper", "enforcer", "keeper"]) and not still_settling:
+	if in_own_third and (role_now == "defender" or role_now == "keeper") and not still_settling:
 		var fwd2: Dictionary = _find_forward_teammate(ctx)
 		if not fwd2.is_empty():
 			return Decision.new(Action.PASS, _df(fwd2, "x"), _df(fwd2, "y"), _dg(fwd2))
@@ -471,10 +517,11 @@ static func _smart_dribble_target(ctx: Context) -> Vector2:
 	var goal_x: float = 1.0 if ctx.is_home else 0.0
 	var fwd_dir: float = 1.0 if ctx.is_home else -1.0
 	var dribble_step: float = 0.10 + _sf(ctx.goblin, "speed") * 0.012 + _sf(ctx.goblin, "chaos") * 0.004
-	if _is_pos(ctx.goblin, ["winger", "shadow_striker", "trequartista"]):
-		dribble_step += 0.02
-	elif _is_pos(ctx.goblin, ["target_man", "anchor", "sweeper"]):
-		dribble_step -= 0.02
+	match _role(ctx.goblin):
+		"chaos":
+			dribble_step += 0.03
+		"defender":
+			dribble_step -= 0.02
 	var target_x: float = ctx.goblin_x + fwd_dir * dribble_step
 	var target_y: float = ctx.goblin_y
 
@@ -489,16 +536,19 @@ static func _smart_dribble_target(ctx: Context) -> Vector2:
 		if not ahead:
 			continue
 		var d: float = _dist(ctx.goblin_x, ctx.goblin_y, ox, oy)
-		if d < nearest_opp_dist and d < 0.2:
+		if d < nearest_opp_dist and d < 0.10:
 			nearest_opp_dist = d
 			nearest_opp_y = oy
 
 	# If opponent is close ahead, swerve away from them
-	if nearest_opp_dist < 0.2:
+	if nearest_opp_dist < 0.10:
 		if nearest_opp_y > ctx.goblin_y:
 			target_y = ctx.goblin_y - (0.06 + _sf(ctx.goblin, "chaos") * 0.006)
 		else:
 			target_y = ctx.goblin_y + (0.06 + _sf(ctx.goblin, "chaos") * 0.006)
+	else:
+		# No close threat: drift back toward center so dribblers don't get stuck on the sideline
+		target_y = lerpf(target_y, 0.5, 0.05)
 
 	target_y = clampf(target_y, 0.05, 0.95)
 	target_x = clampf(target_x, 0.02, 0.98)
@@ -607,12 +657,12 @@ static func _find_best_pass(ctx: Context) -> Dictionary:
 		var goal_proximity: float = (1.0 - absf(tx - goal_x)) * 0.5
 
 		var receiver_bonus: float = _sf(receiver, "speed") * 0.10 + _sf(receiver, "shooting") * 0.10 + _sf(receiver, "strength") * 0.06
-		if _is_pos(receiver, ["striker", "poacher", "shadow_striker", "attacking_mid"]):
-			receiver_bonus += goal_proximity * 0.9
-		elif _is_pos(receiver, ["target_man", "false_nine"]):
-			receiver_bonus += _sf(receiver, "strength") * 0.08
-		elif _is_pos(receiver, ["winger", "wing_back"]):
-			receiver_bonus += absf(ty - 0.5) * 0.5
+		match _role(receiver):
+			"attacker":
+				receiver_bonus += goal_proximity * 0.9
+			"chaos":
+				# Chaos goblin in space gets a *huge* bonus - they're going to fly-kick it.
+				receiver_bonus += goal_proximity * 0.6 + absf(ty - 0.5) * 0.4
 
 		# Runner bonus: balls go to teammates making runs
 		if ctx.teammate_run_states.has(receiver):
@@ -654,10 +704,11 @@ static func _find_forward_teammate(ctx: Context) -> Dictionary:
 			elif opp_dist > 0.18:
 				space_bonus += 0.25
 		var receiver_bonus: float = _sf(receiver, "speed") * 0.12 + _sf(receiver, "shooting") * 0.12 + _sf(receiver, "strength") * 0.05
-		if _is_pos(receiver, ["striker", "poacher", "shadow_striker"]):
-			receiver_bonus += 0.65
-		elif _is_pos(receiver, ["winger", "wing_back"]):
-			receiver_bonus += absf(ty - 0.5) * 0.45
+		match _role(receiver):
+			"attacker":
+				receiver_bonus += 0.65
+			"chaos":
+				receiver_bonus += 0.45 + absf(ty - 0.5) * 0.4
 		var risk_length_bonus: float = maxf(0.0, forward_amount - 0.18) * pass_risk_bias * 0.25
 		var s: float = forward_amount * 0.65 + closeness_to_goal * 0.50 + receiver_bonus + space_bonus + risk_length_bonus
 		if s > best_score:

@@ -12,11 +12,11 @@ const MATCH_DURATION: float = 90.0  # match minutes
 const MINUTES_PER_TICK: float = 0.08  # ~3 min real-time at default 0.6x speed
 const MOVEMENT_SPEED: float = 0.0090  # base jog speed
 const SPRINT_MULTIPLIER: float = 1.40  # sprinting - visibly faster than jogging
-const PASS_SPEED: float = 0.80  # readable pass speed
-const SHOT_SPEED: float = 1.20
+const PASS_SPEED: float = 0.68  # readable pass speed - slowed ~15% for U10 weight
+const SHOT_SPEED: float = 1.05
 const LOOSE_BALL_RANGE: float = 0.09  # close enough to pick up a loose ball
 const TACKLE_RANGE: float = 0.055  # tight - must be very close
-const CHALLENGE_RANGE: float = 0.075  # wider - shoulder-to-shoulder dribble contests
+const CHALLENGE_RANGE: float = 0.12  # U10: constant shoulder-to-shoulder dribble contests
 const SHOT_RANGE: float = 0.30
 const PASS_RECEIVE_RADIUS: float = 0.06
 const PASS_INTERCEPT_RADIUS: float = 0.04
@@ -336,21 +336,19 @@ func _kickoff_spawn_position(goblin: GoblinData, zone_name: String, is_home: boo
 	var x: float = base_x
 	var y: float = slot_y
 
-	match goblin.position:
-		"winger", "wing_back":
-			y = 0.14 if slot_y < 0.5 else 0.86
-			x += 0.015 if is_home else -0.015
-		"anchor", "sweeper", "enforcer":
+	match PositionDatabase.resolve_key(goblin.position):
+		"defender":
 			y = lerpf(y, 0.5, 0.35)
 			x += -0.025 if is_home else 0.025
-		"playmaker", "trequartista", "attacking_mid", "false_nine":
-			y = lerpf(y, 0.5, 0.22)
-			x += 0.010 if is_home else -0.010
-		"box_to_box", "midfielder":
+		"midfielder":
 			x += 0.006 if is_home else -0.006
-		"poacher", "striker", "target_man", "shadow_striker":
+		"attacker":
 			x += 0.018 if is_home else -0.018
 			y = lerpf(y, 0.5, 0.18)
+		"chaos":
+			# Chaos drifts wide and high - no central pull
+			y = 0.14 if slot_y < 0.5 else 0.86
+			x += 0.020 if is_home else -0.020
 
 	if zone_name == "attack":
 		x = clampf(x, 0.40, 0.48) if is_home else clampf(x, 0.52, 0.60)
@@ -481,12 +479,35 @@ func tick() -> Dictionary:
 	# 7c. Tick ability charges + trigger signature moves when full
 	_tick_ability_charges()
 
-	# 8. Update ball position if controlled
+	# 8. Update ball position if controlled.
+	# Ball "lives" slightly ahead of the goblin in their movement direction
+	# (like a real dribble), and is lerped into place rather than snapped -
+	# this preserves incoming momentum on a reception and gives possession
+	# a visible "carry" rather than the ball overlapping the sprite.
 	if ball.state == Ball.BallState.CONTROLLED and ball.owner and goblin_states.has(ball.owner):
 		var owner_gs: Dictionary = goblin_states[ball.owner]
 		owner_gs["ball_control_time"] = _gf(owner_gs, "ball_control_time") + TICK_DELTA
-		ball.x = _gf(owner_gs, "x")
-		ball.y = _gf(owner_gs, "y")
+		var ow_x: float = _gf(owner_gs, "x")
+		var ow_y: float = _gf(owner_gs, "y")
+		var ow_vx: float = _gf(owner_gs, "vel_x")
+		var ow_vy: float = _gf(owner_gs, "vel_y")
+		var ow_speed: float = sqrt(ow_vx * ow_vx + ow_vy * ow_vy)
+		var carry_off_x: float = 0.0
+		var carry_off_y: float = 0.0
+		if ow_speed > 0.0008:
+			# vel_x/y are per-tick; clamp the offset so it never floats far away.
+			var fwd_amt: float = clampf(ow_speed * 2.4, 0.0, 0.030)
+			carry_off_x = (ow_vx / ow_speed) * fwd_amt
+			carry_off_y = (ow_vy / ow_speed) * fwd_amt
+		else:
+			# Stationary: ball sits a touch in the goblin's facing direction.
+			var face: float = _gf(owner_gs, "facing")
+			carry_off_x = face * 0.012
+		var target_x: float = ow_x + carry_off_x
+		var target_y: float = ow_y + carry_off_y
+		# Lerp 55% per tick - settles in 2-3 ticks (~0.2-0.3s), preserving incoming momentum.
+		ball.x = lerpf(ball.x, target_x, 0.55)
+		ball.y = lerpf(ball.y, target_y, 0.55)
 
 	# 9. Tick haste expiry
 	_tick_haste()
@@ -654,21 +675,24 @@ func _intercept_score(goblin: GoblinData, dist_seg: float, dist_ball: float) -> 
 	return defense * 0.65 + speed * 0.35 + lane_fit + closeness
 
 func _roll_first_touch(goblin: GoblinData) -> bool:
+	# U10 chaos: baseline miscontrol bumped so slow/low-defense receivers fluff touches often.
 	var control: float = float(goblin.get_stat("speed")) * 0.45 + float(goblin.get_stat("defense")) * 0.33
 	control += float(goblin.get_stat("strength")) * 0.22
-	var speed_pressure: float = clampf(ball.get_speed() * 0.08, 0.0, 0.12)
-	var chaos_penalty: float = float(goblin.get_stat("chaos")) * 0.004
-	var miscontrol: float = clampf(0.16 - control * 0.018 + speed_pressure + chaos_penalty, 0.02, 0.15)
+	var speed_pressure: float = clampf(ball.get_speed() * 0.10, 0.0, 0.18)
+	var chaos_penalty: float = float(goblin.get_stat("chaos")) * 0.006
+	var miscontrol: float = clampf(0.30 - control * 0.018 + speed_pressure + chaos_penalty, 0.05, 0.45)
 	return randf() < miscontrol
 
 func _control_settle_time(goblin: GoblinData) -> float:
+	# U10 chaos: shorter settle time on receive - panic decisions, choppier tempo.
 	var control: float = float(goblin.get_stat("defense")) * 0.55 + float(goblin.get_stat("strength")) * 0.45
-	var settle: float = 0.22 - control * 0.018 + float(goblin.get_stat("chaos")) * 0.004
-	if goblin.position == "playmaker" or goblin.position == "trequartista":
-		settle -= 0.04
-	elif goblin.position == "target_man" or goblin.position == "false_nine":
-		settle += 0.02
-	return clampf(settle, 0.06, 0.20)
+	var settle: float = 0.10 - control * 0.008 + float(goblin.get_stat("chaos")) * 0.003
+	match PositionDatabase.resolve_key(goblin.position):
+		"chaos":
+			settle -= 0.02  # chaos goblins act fast (badly)
+		"defender":
+			settle += 0.01  # defenders take an extra beat to be safe
+	return clampf(settle, 0.02, 0.12)
 
 func _give_ball_control(goblin: GoblinData, x: float, y: float, with_settle: bool = true) -> void:
 	# Clear stale carrier target so new carrier doesn't inherit old dribble direction
@@ -959,14 +983,15 @@ func _execute_dribble(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 				_clear_ball_intent()
 				ball.set_loose(_gf(gs, "x"), _gf(gs, "y"))
 				_tick_events.append({"type": "dispossessed", "goblin": goblin.goblin_name, "by": opp.goblin_name})
-				opp_gs["cooldown"] = 0.3
+				# U10 chaos: halved cooldowns so challenges spam constantly.
+				opp_gs["cooldown"] = 0.15
 				# Small chance of hurting the dribbler during the challenge
 				_roll_tackle_injury(opp, goblin, false)
 			else:
 				# Dribbler beats the defender
 				_tick_events.append({"type": "take_on", "goblin": goblin.goblin_name, "beaten": opp.goblin_name})
 				_tick_events.append({"type": "challenge", "goblin": opp.goblin_name, "by": goblin.goblin_name})
-				opp_gs["cooldown"] = 0.5
+				opp_gs["cooldown"] = 0.25
 			break
 
 func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
@@ -995,7 +1020,7 @@ func _execute_tackle(goblin: GoblinData, decision: GoblinAI.Decision) -> void:
 		_clear_ball_intent()
 		ball.set_loose(_gf(owner_gs, "x"), _gf(owner_gs, "y"))
 		var was_foul: bool = false
-		var foul_chance: float = goblin.get_stat("chaos") * 0.02 + (0.1 if goblin.position == "enforcer" else 0.0)
+		var foul_chance: float = goblin.get_stat("chaos") * 0.02 + (0.08 if PositionDatabase.resolve_key(goblin.position) == "chaos" else 0.0)
 		if randf() < foul_chance:
 			was_foul = true
 			_tick_events.append({"type": "foul", "goblin": goblin.goblin_name, "victim": victim.goblin_name})
@@ -1020,7 +1045,8 @@ func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool
 	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.008
 	if was_foul:
 		injury_chance += 0.08
-	if tackler.position == "enforcer":
+	# Chaos goblins are reckless tacklers - extra injury risk
+	if PositionDatabase.resolve_key(tackler.position) == "chaos":
 		injury_chance += 0.04
 	# Victim's health reduces injury chance
 	injury_chance -= float(victim.get_stat("health")) * 0.005
@@ -1703,9 +1729,23 @@ func _update_ideal_positions() -> void:
 				gs["ideal_y"] = ball.y
 				gs["sprinting"] = true
 				continue
-			# Otherwise: stay on goal line, track y
-			gs["ideal_x"] = _gf(gs, "home_x")
-			gs["ideal_y"] = clampf(lerpf(0.5, ball.y, 0.35), 0.36, 0.64)
+			# U10 keeper sway: slow random-walk drift so the keeper isn't always perfectly
+			# on the line. High-chaos keepers wander further. Updates every tick as a
+			# bounded random walk, then applied as an offset on top of the tracking lerp.
+			var k_chaos: float = float(goblin.get_stat("chaos"))
+			var k_def: float = float(goblin.get_stat("defense"))
+			var step: float = 0.0010 + k_chaos * 0.00018 - k_def * 0.00006
+			step = maxf(step, 0.0003)
+			var max_x_drift: float = 0.025 + k_chaos * 0.005
+			var max_y_drift: float = 0.06 + k_chaos * 0.012
+			var sway_x: float = gs.get("keeper_sway_x", 0.0) + randf_range(-step, step)
+			var sway_y: float = gs.get("keeper_sway_y", 0.0) + randf_range(-step * 1.5, step * 1.5)
+			sway_x = clampf(sway_x, -max_x_drift, max_x_drift)
+			sway_y = clampf(sway_y, -max_y_drift, max_y_drift)
+			gs["keeper_sway_x"] = sway_x
+			gs["keeper_sway_y"] = sway_y
+			gs["ideal_x"] = _gf(gs, "home_x") + sway_x
+			gs["ideal_y"] = clampf(lerpf(0.5, ball.y, 0.35) + sway_y, 0.30, 0.70)
 			continue
 
 		# LOOSE_CHASER: sprint directly at the ball - no zone restriction
@@ -1715,10 +1755,11 @@ func _update_ideal_positions() -> void:
 			gs["sprinting"] = true
 			continue
 
-		# Nearby goblins also chase loose balls (not just the designated chaser)
+		# Nearby goblins also chase loose balls (not just the designated chaser).
+		# U10 chaos: widened from 0.15 -> 0.25 so any goblin in the area joins the scramble.
 		if is_loose:
 			var dist_to_loose: float = sqrt((_gf(gs, "x") - ball.x) ** 2 + (_gf(gs, "y") - ball.y) ** 2)
-			if dist_to_loose < 0.15:
+			if dist_to_loose < 0.25:
 				gs["ideal_x"] = ball.x
 				gs["ideal_y"] = ball.y
 				gs["sprinting"] = true
@@ -1804,21 +1845,29 @@ func _update_ideal_positions() -> void:
 			# Weight determines how much the goblin shifts toward the ball
 			# Higher = closer to ball, lower = stays near home position
 			var weight: float
+			var pos_zone: String = PositionDatabase.get_zone(goblin.position)
+			# U10/goblin chaos tuning: doubled lerp weights so off-ball goblins drift
+			# much closer to the ball - shape collapses, swarm forms.
 			if my_team_has_ball and not is_loose:
-				# IN POSSESSION: hold shape, create passing options
-				weight = 0.10
+				match pos_zone:
+					"attack":
+						weight = 0.40
+					"midfield":
+						weight = 0.32
+					"defense":
+						weight = 0.18
+					_:
+						weight = 0.22
 			else:
-				# DEFENDING: compress toward ball as a team
-				var pos_zone: String = PositionDatabase.get_zone(goblin.position)
 				match pos_zone:
 					"defense":
-						weight = 0.20  # defenders shift slightly
+						weight = 0.35
 					"midfield":
-						weight = 0.30  # midfielders shift more
+						weight = 0.50
 					"attack":
-						weight = 0.15  # attackers stay high, don't track back much
+						weight = 0.25
 					_:
-						weight = 0.20
+						weight = 0.35
 
 			gs["ideal_x"] = lerpf(home_x, ball.x, weight)
 			gs["ideal_y"] = lerpf(home_y, ball.y, weight)

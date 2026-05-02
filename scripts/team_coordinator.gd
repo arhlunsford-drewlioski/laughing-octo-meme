@@ -12,8 +12,9 @@ enum Role {
 	HOLDER,         # holds zone position
 }
 
-# Minimum ticks a goblin keeps their role before reassignment
-const ROLE_STICKY_TICKS: int = 3
+# Minimum ticks a goblin keeps their role before reassignment.
+# U10 chaos: dropped 3 -> 1 so roles thrash and reassignments feel fluid.
+const ROLE_STICKY_TICKS: int = 1
 const MAX_MARKERS_PER_TEAM: int = 2
 
 # ── State ──────────────────────────────────────────────────────────────────
