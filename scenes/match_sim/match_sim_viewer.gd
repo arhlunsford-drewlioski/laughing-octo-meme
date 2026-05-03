@@ -199,7 +199,18 @@ func _setup_and_start() -> void:
 	# spells on either side - just the sim.
 	_spell_system = SpellSystem.new()
 	if RunManager.run_active and RunManager.run_spellbook != null:
-		_spell_system.setup_signature(RunManager.get_modified_spell())
+		# Opponent has their own spellbook (book + curated pages by archetype).
+		var opp_book: SpellbookData = RunManager.get_current_opponent_spellbook()
+		var opp_spells: Array[SpellData] = []
+		if opp_book != null and opp_book.base_spell != null:
+			var opp_modified: SpellData = opp_book.get_modified_spell()
+			if opp_modified != null:
+				opp_spells.append(opp_modified)
+		_spell_system.setup_signature(RunManager.get_modified_spell(), opp_spells)
+		# Override archetype name with the actual wizard title for the cast banner.
+		var opp_name: String = RunManager.get_current_opponent_archetype_name()
+		if opp_name != "":
+			_spell_system.opponent_archetype_name = opp_name.to_upper()
 	else:
 		_spell_system.setup_disabled()
 	if _spell_system.disabled:
@@ -358,14 +369,27 @@ func _on_spell_pressed(hand_index: int) -> void:
 
 	# Special spells get special targeting
 	match spell.special_effect:
-		"fireball":
+		# AOE wobble-aimed strikes
+		"fireball", "lightning_bolt", "meteor":
 			_start_wobble_targeting(hand_index)
+		# Pitch-placed effects
 		"shield_dome":
 			_start_targeting(hand_index, "pitch")
-		"chain_lightning":
+		# Enemy-targeted hostile spells
+		"chain_lightning", "rot_curse":
 			_start_targeting(hand_index, "enemy")
-		"healing_wave":
+		# Ally-targeted support spells
+		"healing_wave", "heal", "teleport":
 			_start_targeting(hand_index, "ally")
+		# Global / no-target effects
+		"earthquake":
+			_cast_spell_pitch(hand_index, 0.5, 0.5)
+		"divine_light", "war_cry", "haste", "resurrect", "mass_protect":
+			_cast_spell_immediate(hand_index)
+		# Not yet implemented in backend - soft fail with a log
+		"clone", "mind_control", "swap":
+			_log("[color=#aaaaaa]%s isn't wired to a backend handler yet.[/color]" % spell.spell_name)
+			return
 		_:
 			# Default: check target type
 			match spell.target_type:
@@ -474,6 +498,28 @@ func _cast_spell_immediate(hand_index: int) -> void:
 		"haste":
 			sim.cast_haste(0)
 			_log("[color=#44dd66][b]HASTE! Your goblins surge forward![/b][/color]")
+		"divine_light":
+			# Heal minor injuries on all allies, then apply the +defense buff.
+			for g in home_formation.get_all():
+				if sim.goblin_states.has(g) and g.injury == GoblinData.InjuryState.MINOR:
+					g.heal_injury()
+			var dl_dur: int = int(spell.duration * MatchSimulation.TICKS_PER_SECOND) if spell.duration > 0.0 else 0
+			for g in home_formation.get_all():
+				if sim.goblin_states.has(g):
+					for stat_name in spell.stat_modifiers:
+						sim._apply_buff(g, stat_name, int(spell.stat_modifiers[stat_name]), dl_dur, "divine_light")
+			_log("[color=#ffeebb][b]DIVINE LIGHT! Your goblins are bathed in radiance.[/b][/color]")
+		"resurrect":
+			sim.cast_resurrect(0)
+			_log("[color=#ffcc66][b]RESURRECT! A fallen goblin returns![/b][/color]")
+		"mass_protect":
+			sim.cast_mass_protect(0)
+			# Apply dome to all our goblins
+			for g in home_formation.get_all():
+				if sim.goblin_states.has(g):
+					var gs: Dictionary = sim.goblin_states[g]
+					_spell_system.apply_dome(0, float(gs["x"]), float(gs["y"]))
+			_log("[color=#88ddff][b]MASS PROTECT! Your team is shielded![/b][/color]")
 		_:
 			# Generic: apply stat_modifiers to all allies or all enemies
 			if not spell.stat_modifiers.is_empty():
@@ -512,6 +558,24 @@ func _cast_spell_targeted(hand_index: int, target: GoblinData) -> void:
 		"dark_surge":
 			sim.cast_dark_surge(0, target)
 			_log("[color=#ff9933][b]DARK SURGE on %s![/b][/color]" % target.goblin_name)
+		"heal":
+			sim.cast_heal(0, target)
+			_log("[color=#66ff99][b]HEAL! %s is restored![/b][/color]" % target.goblin_name)
+		"rot_curse":
+			sim.cast_rot_curse(0, target)
+			_log("[color=#88dd44][b]ROT CURSE on %s. They have 20s.[/b][/color]" % target.goblin_name)
+		"teleport":
+			# Teleport target ally to a forward position - default to mid-attacking-third.
+			var dest_x: float = 0.7
+			var dest_y: float = 0.5
+			sim.cast_teleport(0, target, dest_x, dest_y)
+			_log("[color=#cc88ff][b]TELEPORT! %s flickers forward.[/b][/color]" % target.goblin_name)
+		"rage_potion":
+			sim.cast_rage_potion(0, target)
+			_log("[color=#ff5544][b]RAGE POTION! %s loses control.[/b][/color]" % target.goblin_name)
+		"blood_pact":
+			sim.cast_blood_pact(0, target)
+			_log("[color=#aa2244][b]BLOOD PACT on %s. They will pay later.[/b][/color]" % target.goblin_name)
 		_:
 			# Generic: apply all stat_modifiers as buffs to the target
 			var duration_ticks: int = int(spell.duration * MatchSimulation.TICKS_PER_SECOND) if spell.duration > 0.0 else 0
@@ -622,6 +686,7 @@ func _queue_spell_resolution(team_index: int, spell: SpellData, target_goblin: G
 				"x": pitch_x,
 				"y": pitch_y,
 				"timer": 2.35,
+				"spell": spell,
 			})
 			_log("[color=#ff7733][b]%s FIREBALL INBOUND! Move before it lands![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
 		"shield_dome":
@@ -664,6 +729,97 @@ func _queue_spell_resolution(team_index: int, spell: SpellData, target_goblin: G
 		"dark_surge":
 			if target_goblin:
 				sim.cast_dark_surge(team_index, target_goblin)
+		"lightning_bolt":
+			# DnD-style line: starts at the aim point, fires forward into the enemy half.
+			var enemy_goal_x: float = 1.0 if cast_from_home else 0.0
+			var lb_end_x: float = enemy_goal_x
+			var lb_end_y: float = clampf(pitch_y + (pitch_y - 0.5) * 0.3, 0.05, 0.95)
+			animated_pitch.play_spell_chain(
+				[Vector2(pitch_x, pitch_y), Vector2(lb_end_x, lb_end_y)],
+				"lightning")
+			_pending_spell_resolutions.append({
+				"type": "lightning_bolt",
+				"team_index": team_index,
+				"x": pitch_x,
+				"y": pitch_y,
+				"timer": 0.4,
+				"spell": spell,
+			})
+			_log("[color=#aaccff][b]%s LIGHTNING BOLT cracks across the pitch![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"meteor":
+			animated_pitch.launch_spell_projectile("fireball", cast_from_home, pitch_x, pitch_y)
+			_pending_spell_resolutions.append({
+				"type": "meteor",
+				"team_index": team_index,
+				"x": pitch_x,
+				"y": pitch_y,
+				"timer": 3.0,
+				"spell": spell,
+			})
+			_log("[color=#ff5511][b]%s METEOR FALLING![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"earthquake":
+			_pending_spell_resolutions.append({
+				"type": "earthquake",
+				"team_index": team_index,
+				"timer": 0.6,
+			})
+			_log("[color=#aa7733][b]%s EARTHQUAKE![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"rot_curse":
+			if target_goblin:
+				_pending_spell_resolutions.append({
+					"type": "rot_curse",
+					"team_index": team_index,
+					"goblin": target_goblin,
+					"timer": 0.3,
+				})
+				_log("[color=#88dd44][b]%s ROT CURSE on %s.[/b][/color]" % [("YOUR" if team_index == 0 else "ENEMY"), target_goblin.goblin_name])
+		"heal":
+			if target_goblin:
+				_pending_spell_resolutions.append({
+					"type": "heal",
+					"team_index": team_index,
+					"goblin": target_goblin,
+					"timer": 0.2,
+				})
+				_log("[color=#66ff99][b]%s HEAL on %s.[/b][/color]" % [("YOUR" if team_index == 0 else "ENEMY"), target_goblin.goblin_name])
+		"resurrect":
+			_pending_spell_resolutions.append({
+				"type": "resurrect",
+				"team_index": team_index,
+				"timer": 0.5,
+			})
+			_log("[color=#ffcc66][b]%s RESURRECT![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"teleport":
+			if target_goblin:
+				_pending_spell_resolutions.append({
+					"type": "teleport",
+					"team_index": team_index,
+					"goblin": target_goblin,
+					"x": pitch_x if pitch_x >= 0.0 else (0.7 if cast_from_home else 0.3),
+					"y": pitch_y if pitch_y >= 0.0 else 0.5,
+					"timer": 0.2,
+				})
+				_log("[color=#cc88ff][b]%s TELEPORT![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"rage_potion":
+			if target_goblin:
+				_pending_spell_resolutions.append({
+					"type": "rage_potion",
+					"team_index": team_index,
+					"goblin": target_goblin,
+					"timer": 0.2,
+				})
+				_log("[color=#ff5544][b]%s RAGE POTION on %s![/b][/color]" % [("YOUR" if team_index == 0 else "ENEMY"), target_goblin.goblin_name])
+		"mass_protect":
+			_pending_spell_resolutions.append({
+				"type": "mass_protect",
+				"team_index": team_index,
+				"timer": 0.3,
+			})
+			_log("[color=#88ddff][b]%s MASS PROTECT![/b][/color]" % ("YOUR" if team_index == 0 else "ENEMY"))
+		"blood_pact":
+			if target_goblin:
+				sim.cast_blood_pact(team_index, target_goblin)
+				_log("[color=#aa2244][b]%s BLOOD PACT on %s.[/b][/color]" % [("YOUR" if team_index == 0 else "ENEMY"), target_goblin.goblin_name])
 
 func _build_bounce_targets(start_goblin: GoblinData, formation: Formation, max_targets: int, bounce_radius: float) -> Array:
 	var results: Array = []
@@ -723,7 +879,8 @@ func _resolve_pending_spell(pending: Dictionary) -> void:
 		"fireball":
 			var fx: float = float(pending.get("x", 0.5))
 			var fy: float = float(pending.get("y", 0.5))
-			sim.cast_fireball(team_index, fx, fy)
+			var fb_spell: SpellData = pending.get("spell", null) as SpellData
+			sim.cast_fireball(team_index, fx, fy, fb_spell)
 			animated_pitch.play_fireball_explosion(fx, fy)
 		"shield_dome":
 			_spell_system.apply_dome(team_index, float(pending.get("x", 0.5)), float(pending.get("y", 0.5)))
@@ -734,12 +891,13 @@ func _resolve_pending_spell(pending: Dictionary) -> void:
 		"lightning_bolt":
 			var lx: float = float(pending.get("x", 0.5))
 			var ly: float = float(pending.get("y", 0.5))
-			sim.cast_lightning_bolt(team_index, lx, ly)
-			animated_pitch.play_fireball_explosion(lx, ly)
+			var lb_spell: SpellData = pending.get("spell", null) as SpellData
+			sim.cast_lightning_bolt(team_index, lx, ly, lb_spell)
 		"meteor":
 			var mx: float = float(pending.get("x", 0.5))
 			var my: float = float(pending.get("y", 0.5))
-			sim.cast_meteor(team_index, mx, my)
+			var m_spell: SpellData = pending.get("spell", null) as SpellData
+			sim.cast_meteor(team_index, mx, my, m_spell)
 			animated_pitch.play_fireball_explosion(mx, my)
 		"earthquake":
 			sim.cast_earthquake(team_index)

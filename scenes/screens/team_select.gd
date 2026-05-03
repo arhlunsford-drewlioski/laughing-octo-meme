@@ -24,11 +24,22 @@ func _ready() -> void:
 	_build_roster_ui()
 	_update_confirm_state()
 
-	# Show opponent info
+	# Show opponent info + wizard archetype + book
 	var opp_name := RunManager.get_current_opponent_name()
 	var stage := RunManager.get_stage_name()
-	subtitle_label.text = "%s - vs %s" % [stage, opp_name]
-	subtitle_label.add_theme_color_override("font_color", UITheme.CREAM)
+	var arch_name := RunManager.get_current_opponent_archetype_name()
+	var opp_book := RunManager.get_current_opponent_spellbook()
+	var line: String = "%s - vs %s" % [stage, opp_name]
+	if arch_name != "":
+		line += " (%s)" % arch_name
+	if opp_book != null:
+		line += "\n%s %s - %d page%s bound" % [
+			opp_book.icon, opp_book.book_name,
+			opp_book.pages.size(), "" if opp_book.pages.size() == 1 else "s"
+		]
+	subtitle_label.text = line
+	var subtitle_color: Color = opp_book.color if opp_book != null else UITheme.CREAM
+	subtitle_label.add_theme_color_override("font_color", subtitle_color)
 	subtitle_label.add_theme_font_size_override("font_size", 15)
 
 func _build_roster_ui() -> void:

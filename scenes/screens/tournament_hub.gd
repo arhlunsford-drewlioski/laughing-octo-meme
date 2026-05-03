@@ -39,12 +39,27 @@ func _refresh() -> void:
 	else:
 		_build_bracket_view()
 
-	# Show next opponent
+	# Show next opponent + wizard archetype
 	var fixture := RunManager.tournament.get_next_player_fixture()
 	if fixture:
 		var opp_name := RunManager.get_current_opponent_name()
-		opponent_label.text = "Next: " + opp_name
-		opponent_label.add_theme_color_override("font_color", UITheme.CREAM)
+		var arch_name := RunManager.get_current_opponent_archetype_name()
+		var opp_book := RunManager.get_current_opponent_spellbook()
+		var book_label := ""
+		var book_color: Color = UITheme.CREAM
+		if opp_book != null:
+			book_label = "%s %s (%d page%s)" % [
+				opp_book.icon, opp_book.book_name,
+				opp_book.pages.size(), "" if opp_book.pages.size() == 1 else "s"
+			]
+			book_color = opp_book.color
+		var line: String = "Next: " + opp_name
+		if arch_name != "":
+			line += "  -  " + arch_name
+		if book_label != "":
+			line += "\n" + book_label
+		opponent_label.text = line
+		opponent_label.add_theme_color_override("font_color", book_color)
 		opponent_label.add_theme_font_size_override("font_size", 15)
 		next_match_btn.visible = true
 		next_match_btn.disabled = false

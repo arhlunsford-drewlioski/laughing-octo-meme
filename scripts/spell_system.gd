@@ -98,6 +98,8 @@ func setup_disabled() -> void:
 
 func setup_signature(spell: SpellData, opponent_spells: Array[SpellData] = []) -> void:
 	## Spellbook mode: one spell, always in hand, cooldown-gated instead of consumed.
+	## Opponent ALSO gets a single signature spell (rolled from book pool if not provided)
+	## so both wizards play under the same rules.
 	deck.clear()
 	hand.clear()
 	mana = 4.0
@@ -119,7 +121,23 @@ func setup_signature(spell: SpellData, opponent_spells: Array[SpellData] = []) -
 	signature_cooldown_remaining = 0.0
 	if spell != null:
 		hand.append(spell)
-	_draw_opponent_hand(opponent_spells)
+
+	# Opponent's signature spell - if caller didn't supply one, roll a base spell
+	# from a random spellbook. Placeholder until Phase 2 wires real opponent books.
+	opponent_hand.clear()
+	var opp_spell: SpellData = null
+	if not opponent_spells.is_empty() and opponent_spells[0] != null:
+		opp_spell = opponent_spells[0]
+	else:
+		var books: Array[SpellbookData] = SpellbookDatabase.all_books()
+		var book: SpellbookData = books[randi() % books.size()]
+		opp_spell = book.base_spell.duplicate(true) as SpellData if book and book.base_spell else null
+		opponent_archetype_name = book.book_name.to_upper() if book else "RIVAL WIZARD"
+	if opp_spell != null:
+		opponent_hand.append(opp_spell)
+	_opponent_cast_chance = 0.05
+	_opponent_cooldown_min = 5.0
+	_opponent_cooldown_max = 8.0
 
 func _draw_hand() -> void:
 	hand.clear()
@@ -304,7 +322,10 @@ func try_opponent_cast(home_formation: Formation, away_formation: Formation,
 	opponent_cast_target_goblin = picked.get("goblin", null) as GoblinData
 	_opponent_cast_ticks = 0
 	opponent_mana -= spell.mana_cost
-	opponent_hand.remove_at(idx)
+	# In signature mode the opponent's spell is their book - it stays in hand,
+	# cooldown gates the next cast. In legacy deck mode the spell is consumed.
+	if not signature_mode:
+		opponent_hand.remove_at(idx)
 	_opponent_cooldown = randf_range(_opponent_cooldown_min, _opponent_cooldown_max)
 
 func _build_opponent_option(spell: SpellData, home_formation: Formation, away_formation: Formation,

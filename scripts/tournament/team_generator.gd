@@ -33,13 +33,13 @@ static func generate_teams(count: int) -> Array[TeamData]:
 	prefixes.shuffle()
 	suffixes.shuffle()
 
-	var factions := FactionSystem.get_all_factions()
+	# Factions removed - opponent identity comes from sorcerer archetype now.
 	var teams: Array[TeamData] = []
 
 	for i in range(count):
 		var team := TeamData.new()
 		team.team_name = prefixes[i % prefixes.size()] + " " + suffixes[i % suffixes.size()]
-		team.faction = factions[i % factions.size()]
+		team.faction = 0
 
 		# Difficulty scales with team index (shuffled into groups/bracket later)
 		# Range 0.0 (weakest) to 1.0 (strongest)
@@ -51,6 +51,12 @@ static func generate_teams(count: int) -> Array[TeamData]:
 		team.roster = GoblinGenerator.generate_scaled_opponent_roster(team.faction, difficulty)
 		team.formation = GoblinDatabase.build_default_formation(team.roster)
 		team.is_player = false
+
+		# Each opponent is a wizard with their own spellbook + difficulty-scaled pages.
+		var archetype: Dictionary = SpellbookArchetypes.roll_archetype(difficulty)
+		team.archetype_name = str(archetype.get("name", ""))
+		team.spellbook = SpellbookArchetypes.build_spellbook(archetype, difficulty)
+
 		teams.append(team)
 
 	return teams

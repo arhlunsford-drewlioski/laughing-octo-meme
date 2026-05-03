@@ -87,6 +87,24 @@ func get_current_opponent_name() -> String:
 		return "Unknown"
 	return tournament.get_team(opp_idx).team_name
 
+func get_current_opponent_spellbook() -> SpellbookData:
+	if not tournament:
+		return null
+	var opp_idx := tournament.get_player_opponent_index()
+	if opp_idx < 0:
+		return null
+	var team := tournament.get_team(opp_idx)
+	return team.spellbook if team else null
+
+func get_current_opponent_archetype_name() -> String:
+	if not tournament:
+		return ""
+	var opp_idx := tournament.get_player_opponent_index()
+	if opp_idx < 0:
+		return ""
+	var team := tournament.get_team(opp_idx)
+	return team.archetype_name if team else ""
+
 func get_stage_name() -> String:
 	if not tournament:
 		return ""

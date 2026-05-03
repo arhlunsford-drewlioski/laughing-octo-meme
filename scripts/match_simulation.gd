@@ -1042,26 +1042,27 @@ func _roll_tackle_injury(tackler: GoblinData, victim: GoblinData, was_foul: bool
 	if is_shielded.call(victim):
 		_tick_events.append({"type": "shield_block", "goblin": victim.goblin_name})
 		return  # shield absorbs the hit
-	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.008
+	# Lower coefficient so most tackles are clean.
+	var injury_chance: float = (float(tackler.get_stat("strength")) + float(tackler.get_stat("chaos"))) * 0.005
 	if was_foul:
-		injury_chance += 0.08
+		injury_chance += 0.06
 	# Chaos goblins are reckless tacklers - extra injury risk
 	if PositionDatabase.resolve_key(tackler.position) == "chaos":
-		injury_chance += 0.04
+		injury_chance += 0.03
 	# Victim's health reduces injury chance
-	injury_chance -= float(victim.get_stat("health")) * 0.005
+	injury_chance -= float(victim.get_stat("health")) * 0.006
 	# KEEPERS are tough - big injury resistance
 	if victim.position == "keeper":
-		injury_chance *= 0.4  # 60% less likely to be hurt
-	injury_chance = maxf(injury_chance, 0.01)
+		injury_chance *= 0.4
+	injury_chance = maxf(injury_chance, 0.005)
 	if randf() >= injury_chance:
 		return
 
 	var severity_roll: float = randf()
 	var severity: int  # GoblinData.InjuryState
-	# Keepers: lower chance of death, clamp severity
-	var death_threshold: float = 0.98
-	var major_threshold: float = 0.65
+	# Keepers: lower chance of death, clamp severity. General tackle deaths are rare.
+	var death_threshold: float = 0.992
+	var major_threshold: float = 0.55
 	if victim.position == "keeper":
 		death_threshold = 0.995  # basically never die from tackles
 		major_threshold = 0.80   # mostly minor injuries
@@ -1124,61 +1125,88 @@ func _process_pending_removals() -> void:
 		_remove_goblin_from_match(goblin)
 	_pending_removals.clear()
 
-const FIREBALL_KILL_RADIUS: float = 0.08   # instant death zone
-const FIREBALL_BLAST_RADIUS: float = 0.16  # injury/death falloff zone
+const FIREBALL_KILL_RADIUS: float = 0.055  # instant death zone (small)
+const FIREBALL_BLAST_RADIUS: float = 0.16   # injury/death falloff zone
 
-func cast_fireball(team_index: int, target_x: float, target_y: float) -> bool:
+func cast_fireball(team_index: int, target_x: float, target_y: float, spell: SpellData = null) -> bool:
 	## One-time AoE spell: hits all goblins in blast radius.
 	## Center = instant kill, edge = injury chance. Hits both teams!
+	## Page modifiers from `spell` meta:
+	##   - radius_bonus (float): adds to blast radius as a fraction (0.25 = +25%)
+	##   - damage_bonus (int):   raises injury intensity (more deaths/majors)
+	##   - page_tags (Array):    "split" - ignite a second mini-fireball nearby
 	_tick_events.append({"type": "fireball", "x": target_x, "y": target_y, "team": "home" if team_index == 0 else "away"})
 
-	# Check every goblin on the pitch
+	var radius_bonus: float = 0.0
+	var damage_bonus: int = 0
+	var tags: Array = []
+	if spell != null:
+		if spell.has_meta("radius_bonus"):
+			radius_bonus = float(spell.get_meta("radius_bonus"))
+		if spell.has_meta("damage_bonus"):
+			damage_bonus = int(spell.get_meta("damage_bonus"))
+		if spell.has_meta("page_tags"):
+			tags = spell.get_meta("page_tags")
+
+	var blast_r: float = FIREBALL_BLAST_RADIUS * (1.0 + radius_bonus)
+	var kill_r: float = FIREBALL_KILL_RADIUS * (1.0 + radius_bonus * 0.6)
+	# Damage bonus shifts the intensity curve toward more lethal outcomes.
+	var dmg_bias: float = float(damage_bonus) * 0.10
+
+	_resolve_fireball_blast(team_index, target_x, target_y, blast_r, kill_r, dmg_bias)
+
+	# "split" tag: spawn two mini-blasts at offsets, half radius, no further split.
+	if "split" in tags:
+		var split_r: float = blast_r * 0.6
+		var split_kill: float = kill_r * 0.6
+		_resolve_fireball_blast(team_index, target_x + 0.05, target_y + 0.04, split_r, split_kill, dmg_bias)
+		_resolve_fireball_blast(team_index, target_x - 0.05, target_y - 0.04, split_r, split_kill, dmg_bias)
+
+	return true
+
+func _resolve_fireball_blast(_team_index: int, target_x: float, target_y: float, blast_r: float, kill_r: float, dmg_bias: float) -> void:
 	var hit_goblins: Array = []
 	for goblin in goblin_states:
 		var gs: Dictionary = goblin_states[goblin]
 		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
-		if d < FIREBALL_BLAST_RADIUS:
+		if d < blast_r:
 			hit_goblins.append({"goblin": goblin, "dist": d})
 
 	for entry in hit_goblins:
 		var goblin: GoblinData = entry["goblin"]
 		var d: float = float(entry["dist"])
 		if not goblin_states.has(goblin):
-			continue  # already removed by earlier hit this frame
+			continue
 		if is_shielded.call(goblin):
 			_tick_events.append({"type": "shield_block", "goblin": goblin.goblin_name})
 			continue
 
-		# Keepers take 50% less damage from fireball (tough bastards)
 		var is_keeper: bool = goblin.position == "keeper"
 
-		if d < FIREBALL_KILL_RADIUS and not is_keeper:
-			# Direct hit - instant death (except keepers)
+		if d < kill_r and not is_keeper:
 			goblin.apply_injury(GoblinData.InjuryState.DEAD)
 			_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
 			_remove_goblin_from_match(goblin)
-		elif d < FIREBALL_KILL_RADIUS and is_keeper:
-			# Keeper direct hit - major injury instead of death
+		elif d < kill_r and is_keeper:
 			goblin.apply_injury(GoblinData.InjuryState.MAJOR)
 			_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "major", "by": "FIREBALL"})
 		else:
-			# Blast zone - severity based on distance (closer = worse)
-			var intensity: float = 1.0 - (d - FIREBALL_KILL_RADIUS) / (FIREBALL_BLAST_RADIUS - FIREBALL_KILL_RADIUS)
+			var intensity: float = 1.0 - (d - kill_r) / maxf(blast_r - kill_r, 0.001)
+			intensity = clampf(intensity + dmg_bias, 0.0, 1.0)
 			if is_keeper:
-				intensity *= 0.5  # keepers tank the blast
+				intensity *= 0.5
 			var roll: float = randf()
-			if roll < intensity * 0.4 and not is_keeper:
+			# Outer-zone deaths are rare unless damage_bonus pushes them harder.
+			if roll < intensity * 0.18 and not is_keeper:
 				goblin.apply_injury(GoblinData.InjuryState.DEAD)
 				_tick_events.append({"type": "death", "goblin": goblin.goblin_name, "by": "FIREBALL"})
 				_remove_goblin_from_match(goblin)
-			elif roll < intensity * 0.7:
+			elif roll < intensity * 0.55:
 				goblin.apply_injury(GoblinData.InjuryState.MAJOR)
 				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "major", "by": "FIREBALL"})
 			else:
 				goblin.apply_injury(GoblinData.InjuryState.MINOR)
 				_tick_events.append({"type": "injury", "goblin": goblin.goblin_name, "severity": "minor", "by": "FIREBALL"})
-
-	return true
 
 # ── Haste Spell ────────────────────────────────────────────────────────────
 
@@ -1420,31 +1448,146 @@ func cast_healing_wave(team_index: int, targets: Array) -> bool:
 			_tick_events.append({"type": "healed", "goblin": goblin.goblin_name})
 	return true
 
-func cast_lightning_bolt(team_index: int, target_x: float, target_y: float) -> bool:
-	## Precision kill - hits ONE goblin closest to target point. Instant kill.
+func cast_lightning_bolt(team_index: int, target_x: float, target_y: float, spell: SpellData = null) -> bool:
+	## DnD-style line attack: bolt fires from the caster's side of the pitch
+	## THROUGH the aim point, zapping every goblin within a tight band of the line.
+	## Direct-line hits get a major injury (sometimes lethal); page modifiers
+	## widen the band and push toward kill outcomes.
+	## Page modifiers from `spell` meta:
+	##   - radius_bonus (float): widens the strike band
+	##   - damage_bonus (int):   raises kill chance on hit
+	##   - page_tags ("chain"):  arcs to a nearby enemy off the strike line
+	var radius_bonus: float = 0.0
+	var damage_bonus: int = 0
+	var tags: Array = []
+	if spell != null:
+		if spell.has_meta("radius_bonus"):
+			radius_bonus = float(spell.get_meta("radius_bonus"))
+		if spell.has_meta("damage_bonus"):
+			damage_bonus = int(spell.get_meta("damage_bonus"))
+		if spell.has_meta("page_tags"):
+			tags = spell.get_meta("page_tags")
+
 	var team_name: String = "home" if team_index == 0 else "away"
-	_tick_events.append({"type": "lightning_bolt", "team": team_name, "x": target_x, "y": target_y})
+
+	# Bolt fires FROM the aim point FORWARD toward the enemy goal.
+	# This way you can't accidentally fry your own back line by clicking near the enemy -
+	# the bolt always travels into the opposing half.
+	var origin_x: float = target_x
+	var origin_y: float = target_y
+	var enemy_goal_x: float = 1.0 if team_index == 0 else 0.0
+	# End point at the enemy goal line at the aim's y. Slight angle if aim is off-center.
+	var end_x: float = enemy_goal_x
+	var end_y: float = clampf(target_y + (target_y - 0.5) * 0.3, 0.05, 0.95)
+
+	_tick_events.append({
+		"type": "lightning_bolt", "team": team_name,
+		"x": target_x, "y": target_y,
+		"from_x": origin_x, "from_y": origin_y,
+		"to_x": end_x, "to_y": end_y,
+	})
+
+	# Strike band - everyone within this perpendicular distance of the line gets zapped.
+	var band: float = 0.045 * (1.0 + radius_bonus)
+	# Kill chance scales with damage_bonus. Direct line = major injury baseline,
+	# damage_bonus pushes toward kill.
+	var kill_chance: float = clampf(0.18 + float(damage_bonus) * 0.18, 0.10, 0.85)
+
+	var struck: Array[GoblinData] = []
+	for g in goblin_states.keys():
+		if not goblin_states.has(g):
+			continue
+		var gs: Dictionary = goblin_states[g]
+		var gx: float = _gf(gs, "x")
+		var gy: float = _gf(gs, "y")
+		var perp: float = _point_to_segment_distance(gx, gy, origin_x, origin_y, end_x, end_y)
+		if perp > band:
+			continue
+		if is_shielded.call(g):
+			_tick_events.append({"type": "shield_block", "goblin": g.goblin_name})
+			continue
+		struck.append(g)
+		var roll: float = randf()
+		var is_keeper: bool = g.position == "keeper"
+		if roll < kill_chance and not is_keeper:
+			g.apply_injury(GoblinData.InjuryState.DEAD)
+			_tick_events.append({"type": "lightning_kill", "goblin": g.goblin_name})
+			_pending_removals.append(g)
+		else:
+			# Closer to the line = worse injury.
+			var sev: int = GoblinData.InjuryState.MAJOR if perp < band * 0.5 else GoblinData.InjuryState.MINOR
+			g.apply_injury(sev)
+			_tick_events.append({"type": "lightning_zap", "goblin": g.goblin_name})
+
+	# "chain" tag → arc to a nearby enemy off the strike line.
+	if "chain" in tags and not struck.is_empty():
+		var anchor: GoblinData = struck[0]
+		var ags: Dictionary = goblin_states.get(anchor, {})
+		if not ags.is_empty():
+			var second: GoblinData = _find_closest_enemy_within(team_index, _gf(ags, "x"), _gf(ags, "y"), 0.22, anchor)
+			if second != null and not is_shielded.call(second):
+				second.apply_injury(GoblinData.InjuryState.MAJOR)
+				_tick_events.append({"type": "lightning_chain", "goblin": second.goblin_name})
+
+	return true
+
+static func _point_to_segment_distance(px: float, py: float, ax: float, ay: float, bx: float, by: float) -> float:
+	## Perpendicular distance from point P to segment AB (clamped to segment).
+	var abx: float = bx - ax
+	var aby: float = by - ay
+	var apx: float = px - ax
+	var apy: float = py - ay
+	var ab_len_sq: float = abx * abx + aby * aby
+	if ab_len_sq < 0.000001:
+		return sqrt(apx * apx + apy * apy)
+	var t: float = clampf((apx * abx + apy * aby) / ab_len_sq, 0.0, 1.0)
+	var cx: float = ax + abx * t
+	var cy: float = ay + aby * t
+	var dxp: float = px - cx
+	var dyp: float = py - cy
+	return sqrt(dxp * dxp + dyp * dyp)
+
+func _find_closest_goblin_within(x: float, y: float, max_r: float) -> GoblinData:
 	var best: GoblinData = null
-	var best_dist: float = 0.08  # must be close to the strike point
+	var best_dist: float = max_r
 	for g in goblin_states:
 		var gs: Dictionary = goblin_states[g]
-		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
+		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), x, y)
 		if d < best_dist:
 			best_dist = d
 			best = g
-	if best == null:
-		return false
-	if is_shielded.call(best):
-		_tick_events.append({"type": "shield_block", "goblin": best.goblin_name})
-		return true
-	best.apply_injury(GoblinData.InjuryState.DEAD)
-	_tick_events.append({"type": "lightning_kill", "goblin": best.goblin_name})
-	_pending_removals.append(best)
-	return true
+	return best
 
-func cast_meteor(team_index: int, target_x: float, target_y: float) -> bool:
+func _find_closest_enemy_within(team_index: int, x: float, y: float, max_r: float, exclude: GoblinData = null) -> GoblinData:
+	# team_index 0 = home cast → enemy = away formation
+	var enemy_formation: Formation = away_formation if team_index == 0 else home_formation
+	var best: GoblinData = null
+	var best_dist: float = max_r
+	for g in enemy_formation.get_all():
+		if g == exclude or not goblin_states.has(g):
+			continue
+		var gs: Dictionary = goblin_states[g]
+		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), x, y)
+		if d < best_dist:
+			best_dist = d
+			best = g
+	return best
+
+func cast_meteor(team_index: int, target_x: float, target_y: float, spell: SpellData = null) -> bool:
 	## Massive AoE - much bigger than fireball. Kills anyone inside.
-	const METEOR_RADIUS: float = 0.18
+	## Page modifiers: radius_bonus, damage_bonus.
+	var radius_bonus: float = 0.0
+	var damage_bonus: int = 0
+	if spell != null:
+		if spell.has_meta("radius_bonus"):
+			radius_bonus = float(spell.get_meta("radius_bonus"))
+		if spell.has_meta("damage_bonus"):
+			damage_bonus = int(spell.get_meta("damage_bonus"))
+
+	var meteor_radius: float = 0.18 * (1.0 + radius_bonus)
+	# Smaller inner kill zone - most hits are major injuries, kills are the exception.
+	var inner_radius: float = meteor_radius * (0.30 + float(damage_bonus) * 0.06)
+
 	var team_name: String = "home" if team_index == 0 else "away"
 	_tick_events.append({"type": "meteor", "team": team_name, "x": target_x, "y": target_y})
 	for g in goblin_states.keys():
@@ -1452,18 +1595,16 @@ func cast_meteor(team_index: int, target_x: float, target_y: float) -> bool:
 			continue
 		var gs: Dictionary = goblin_states[g]
 		var d: float = _dist(_gf(gs, "x"), _gf(gs, "y"), target_x, target_y)
-		if d > METEOR_RADIUS:
+		if d > meteor_radius:
 			continue
 		if is_shielded.call(g):
 			_tick_events.append({"type": "shield_block", "goblin": g.goblin_name})
 			continue
-		if d < METEOR_RADIUS * 0.5:
-			# Inner radius: instant kill
+		if d < inner_radius:
 			g.apply_injury(GoblinData.InjuryState.DEAD)
 			_tick_events.append({"type": "meteor_kill", "goblin": g.goblin_name})
 			_pending_removals.append(g)
 		else:
-			# Outer radius: major injury
 			g.apply_injury(GoblinData.InjuryState.MAJOR)
 			_tick_events.append({"type": "meteor_hit", "goblin": g.goblin_name})
 	return true

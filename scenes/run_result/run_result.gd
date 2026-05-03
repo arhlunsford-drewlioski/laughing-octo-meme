@@ -15,7 +15,7 @@ func _ready() -> void:
 	_display_results()
 
 func _display_results() -> void:
-	if RunManager.is_run_won():
+	if RunManager.has_won_tournament():
 		title_label.text = "RUN COMPLETE!"
 		title_label.add_theme_color_override("font_color", UITheme.GOLD_LIGHT)
 	else:
@@ -23,7 +23,15 @@ func _display_results() -> void:
 		title_label.add_theme_color_override("font_color", UITheme.RED)
 	title_label.add_theme_font_size_override("font_size", 36)
 
-	record_label.text = str(RunManager.wins) + "W - " + str(RunManager.losses) + "L"
+	# Derive wins/losses from the match log (RunManager doesn't track them as fields).
+	var wins: int = 0
+	var losses: int = 0
+	for r in RunManager.match_results:
+		if bool(r.get("won", false)):
+			wins += 1
+		else:
+			losses += 1
+	record_label.text = str(wins) + "W - " + str(losses) + "L"
 	record_label.add_theme_color_override("font_color", UITheme.CREAM)
 	record_label.add_theme_font_size_override("font_size", 28)
 
