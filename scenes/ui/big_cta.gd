@@ -60,7 +60,7 @@ func _on_press() -> void:
 
 func _on_release() -> void:
 	if bounce_enabled:
-		_tween_scale(Vector2(1.04, 1.04) if is_hovered() else Vector2.ONE, 0.18)
+		_tween_scale(Vector2(1.04, 1.04) if _is_mouse_over() else Vector2.ONE, 0.18)
 
 
 func _on_pressed_burst() -> void:
@@ -68,7 +68,7 @@ func _on_pressed_burst() -> void:
 		_play_shine()
 
 
-func is_hovered() -> bool:
+func _is_mouse_over() -> bool:
 	return get_global_rect().has_point(get_global_mouse_position())
 
 
