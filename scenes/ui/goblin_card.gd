@@ -22,7 +22,7 @@ const ROLE_ICONS := {
 }
 
 const SIZE_FULL := Vector2(192, 296)
-const SIZE_COMPACT := Vector2(204, 224)
+const SIZE_COMPACT := Vector2(176, 196)
 const SIZE_MINI := Vector2(180, 60)
 
 var _mode: Mode = Mode.FULL

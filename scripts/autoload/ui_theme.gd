@@ -144,16 +144,22 @@ static func build_default_theme() -> Theme:
 	t.default_font = FONT_BODY_RES
 	t.default_font_size = FONT_BODY
 
-	# ---- Button (default = wine-red banner button with gold trim) ----
+	# Disabled = desaturated version of normal, low-key. Reads as "off" without
+	# becoming the muddy-brown blob that fights the palette.
+	var disabled_bg := Color(0.18, 0.21, 0.30)         # desaturated slate
+	var disabled_border := Color(0.35, 0.32, 0.20)     # muted gold
+	var disabled_text := Color(0.55, 0.55, 0.50)       # dim grey
+
+	# ---- Button (default = vermillion banner button with gold trim) ----
 	t.set_stylebox("normal", "Button", make_button_bg(WINE, GOLD, 0))
 	t.set_stylebox("hover", "Button", make_button_bg(WINE_LIGHT, GOLD_LIGHT, -2))
 	t.set_stylebox("pressed", "Button", make_button_bg(WINE_DEEP, GOLD_DEEP, 2))
-	t.set_stylebox("disabled", "Button", make_button_bg(Color(0.30, 0.24, 0.20), PARCHMENT_DEEP, 0))
+	t.set_stylebox("disabled", "Button", make_button_bg(disabled_bg, disabled_border, 0))
 	t.set_stylebox("focus", "Button", _make_focus_style())
 	t.set_color("font_color", "Button", PARCHMENT)
 	t.set_color("font_hover_color", "Button", Color(1, 0.96, 0.85))
 	t.set_color("font_pressed_color", "Button", PARCHMENT_DARK)
-	t.set_color("font_disabled_color", "Button", Color(0.55, 0.50, 0.42))
+	t.set_color("font_disabled_color", "Button", disabled_text)
 	t.set_color("font_outline_color", "Button", INK)
 	t.set_constant("outline_size", "Button", 4)
 	t.set_font("font", "Button", FONT_DISPLAY_RES)
@@ -164,9 +170,11 @@ static func build_default_theme() -> Theme:
 	t.set_stylebox("normal", "GoldButton", make_button_bg(GOLD, INK, 0))
 	t.set_stylebox("hover", "GoldButton", make_button_bg(GOLD_LIGHT, INK, -2))
 	t.set_stylebox("pressed", "GoldButton", make_button_bg(GOLD_DEEP, INK, 2))
+	t.set_stylebox("disabled", "GoldButton", make_button_bg(disabled_bg, disabled_border, 0))
 	t.set_color("font_color", "GoldButton", INK)
 	t.set_color("font_hover_color", "GoldButton", INK)
 	t.set_color("font_pressed_color", "GoldButton", INK)
+	t.set_color("font_disabled_color", "GoldButton", disabled_text)
 	t.set_color("font_outline_color", "GoldButton", GOLD_LIGHT)
 	t.set_constant("outline_size", "GoldButton", 0)
 	t.set_font_size("font_size", "GoldButton", 28)
@@ -176,18 +184,22 @@ static func build_default_theme() -> Theme:
 	t.set_stylebox("normal", "ParchmentButton", make_button_bg(PARCHMENT, WINE_DEEP, 0))
 	t.set_stylebox("hover", "ParchmentButton", make_button_bg(Color(0.98, 0.92, 0.78), WINE, -2))
 	t.set_stylebox("pressed", "ParchmentButton", make_button_bg(PARCHMENT_DARK, WINE_DEEP, 2))
+	t.set_stylebox("disabled", "ParchmentButton", make_button_bg(disabled_bg, disabled_border, 0))
 	t.set_color("font_color", "ParchmentButton", INK)
 	t.set_color("font_hover_color", "ParchmentButton", WINE_DEEP)
 	t.set_color("font_pressed_color", "ParchmentButton", INK)
+	t.set_color("font_disabled_color", "ParchmentButton", disabled_text)
 	t.set_constant("outline_size", "ParchmentButton", 0)
 	t.set_font_size("font_size", "ParchmentButton", 22)
 
-	# ---- "SecondaryButton": muted wood, for back/cancel ----
+	# ---- "SecondaryButton": muted slate, for back/cancel ----
 	t.set_type_variation("SecondaryButton", "Button")
 	t.set_stylebox("normal", "SecondaryButton", make_button_bg(BG_PANEL, PARCHMENT_DEEP, 0))
 	t.set_stylebox("hover", "SecondaryButton", make_button_bg(BG_CARD, PARCHMENT_DARK, -2))
 	t.set_stylebox("pressed", "SecondaryButton", make_button_bg(BG_NIGHT, PARCHMENT_DEEP, 2))
+	t.set_stylebox("disabled", "SecondaryButton", make_button_bg(disabled_bg, disabled_border, 0))
 	t.set_color("font_color", "SecondaryButton", PARCHMENT)
+	t.set_color("font_disabled_color", "SecondaryButton", disabled_text)
 	t.set_font_size("font_size", "SecondaryButton", 20)
 
 	# ---- Label (body text on dark backgrounds) ----

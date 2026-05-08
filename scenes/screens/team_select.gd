@@ -75,10 +75,10 @@ func _build_ui() -> void:
 	left_box.add_child(scroll)
 
 	_roster_grid = GridContainer.new()
-	_roster_grid.columns = 3
+	_roster_grid.columns = 4
 	_roster_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_roster_grid.add_theme_constant_override("h_separation", 12)
-	_roster_grid.add_theme_constant_override("v_separation", 12)
+	_roster_grid.add_theme_constant_override("h_separation", 10)
+	_roster_grid.add_theme_constant_override("v_separation", 10)
 	scroll.add_child(_roster_grid)
 
 	# RIGHT: lineup sidebar
