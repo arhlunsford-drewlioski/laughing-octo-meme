@@ -18,38 +18,49 @@ const FONT_BODY_RES := preload("res://assets/fonts/Nunito-Regular.ttf")
 const FONT_BODY_BOLD_RES := preload("res://assets/fonts/Nunito-Bold.ttf")
 const FONT_BODY_ITALIC_RES := preload("res://assets/fonts/Nunito-Italic.ttf")
 
-# -- Core palette (illuminated-manuscript medieval, deeper-richer pass) --
-const BG_DARK := Color(0.09, 0.06, 0.04)               # near-black tome leather
-const BG_PANEL := Color(0.16, 0.11, 0.07)              # raised wood-panel
-const BG_CARD := Color(0.22, 0.15, 0.10)               # warmer wood card
-const BG_NIGHT := Color(0.05, 0.04, 0.03)              # tavern-at-midnight
+# -- Core palette: "Tournament Heraldry" --
+# Cool deep-blue backdrop launches warm gold CTAs the way Clash Royale does.
+# Hex values picked for WCAG-AA contrast on the parchment surface. The whole
+# palette is ~10 named tokens; if you reach for a new one, find an existing.
+#
+# Backdrop / panel / card-surface (the 60% of the screen)
+const BG_NIGHT := Color(0.059, 0.102, 0.180)           # #0F1A2E  midnight blue
+const BG_DARK := Color(0.059, 0.102, 0.180)            # alias of NIGHT
+const BG_PANEL := Color(0.106, 0.153, 0.259)           # #1B2742  deep slate
+const BG_CARD := Color(0.165, 0.216, 0.349)            # #2A3759  lighter slate (cards-on-dark)
 
-const PARCHMENT := Color(0.94, 0.86, 0.68)             # warm cream paper
-const PARCHMENT_DARK := Color(0.80, 0.70, 0.50)        # parchment shadow
-const PARCHMENT_DEEP := Color(0.62, 0.51, 0.34)        # aged stain
+# Parchment surface (the 30%, where most reading happens)
+const PARCHMENT := Color(0.937, 0.875, 0.722)          # #EFDFB8  warm cream
+const PARCHMENT_DARK := Color(0.788, 0.714, 0.541)     # #C9B68A
+const PARCHMENT_DEEP := Color(0.549, 0.494, 0.361)     # #8C7E5C
 
-const INK := Color(0.10, 0.05, 0.03)                   # dark sepia ink (cartoon outline)
-const INK_SOFT := Color(0.22, 0.14, 0.08)
+# Ink (text-on-parchment, outlines, borders)
+const INK := Color(0.102, 0.059, 0.031)                # #1A0F08  near-black sepia
+const INK_SOFT := Color(0.239, 0.165, 0.110)           # #3D2A1C
 
-const GOLD := Color(0.92, 0.72, 0.18)                  # gold leaf (richer)
-const GOLD_LIGHT := Color(1.00, 0.88, 0.42)
-const GOLD_DEEP := Color(0.55, 0.36, 0.06)
+# Hero metal — owns CTAs, score numerals, wax seals (the 10%)
+const GOLD := Color(0.910, 0.710, 0.188)               # #E8B530  brass-gold
+const GOLD_LIGHT := Color(1.000, 0.820, 0.361)         # #FFD15C  hover/glow
+const GOLD_DEEP := Color(0.549, 0.400, 0.078)          # #8C6614  outline ink for gold
 
-const WINE := Color(0.55, 0.10, 0.12)                  # heraldic wine red
-const WINE_LIGHT := Color(0.78, 0.20, 0.20)
-const WINE_DEEP := Color(0.32, 0.04, 0.06)
+# Heraldic accents (decorative, NOT semantic)
+const WINE := Color(0.784, 0.192, 0.165)               # #C8312A  vermillion
+const WINE_LIGHT := Color(0.878, 0.294, 0.263)         # #E04B43
+const WINE_DEEP := Color(0.478, 0.094, 0.094)          # #7A1818
+const ROYAL_PURPLE := Color(0.420, 0.176, 0.557)       # #6B2D8E
+const ROYAL_PURPLE_LIGHT := Color(0.545, 0.302, 0.682) # #8B4DAE
 
-const FOREST := Color(0.18, 0.34, 0.16)                # heraldic green
-const ROYAL := Color(0.13, 0.20, 0.50)                 # heraldic blue
-const PURPLE := Color(0.32, 0.10, 0.40)
+# Semantic state — use these for confirm/warn, not the heraldic accents above
+const EMERALD := Color(0.239, 0.651, 0.376)            # #3DA660  positive
+const EMERALD_LIGHT := Color(0.365, 0.757, 0.502)      # #5DC180
+const CRIMSON := Color(0.902, 0.224, 0.275)            # #E63946  alert (brighter than WINE so they don't blur)
+const CRIMSON_LIGHT := Color(0.949, 0.345, 0.404)      # #F25867
 
-# -- Semantic accents (use these in screens, not RED/GREEN/BLUE) --
-const EMERALD := Color(0.22, 0.55, 0.30)               # confirm / positive
-const EMERALD_LIGHT := Color(0.36, 0.78, 0.42)
-const CRIMSON := Color(0.78, 0.18, 0.18)               # warn / negative
-const CRIMSON_LIGHT := Color(0.92, 0.32, 0.28)
-const ROYAL_PURPLE := Color(0.28, 0.10, 0.38)          # secondary accent
-const ROYAL_PURPLE_LIGHT := Color(0.46, 0.20, 0.62)
+# Legacy heraldry constants kept for compatibility with match-sim code that
+# references them. Aim them at the new palette so they don't drift.
+const FOREST := EMERALD
+const ROYAL := Color(0.106, 0.153, 0.259)              # = BG_PANEL
+const PURPLE := ROYAL_PURPLE
 
 # In-match feedback colors (toasts, victory/defeat, errors). Kept vivid so
 # they pop on the dark match background - these are status signals, not palette.
