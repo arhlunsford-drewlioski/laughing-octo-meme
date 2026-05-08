@@ -107,6 +107,18 @@ func _ready() -> void:
 	get_tree().root.theme = build_default_theme()
 
 
+## F11 toggles fullscreen across every scene (UITheme is autoloaded, so
+## this listener is always alive).
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F11:
+		var is_fs: bool = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN \
+			or DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+		if is_fs:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MAXIMIZED)
+		else:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+
+
 # ============================================================================
 #  Theme construction
 # ============================================================================

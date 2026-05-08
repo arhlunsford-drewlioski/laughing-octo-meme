@@ -21,8 +21,8 @@ const ROLE_ICONS := {
 	"chaos": "💀",
 }
 
-const SIZE_FULL := Vector2(220, 320)
-const SIZE_COMPACT := Vector2(220, 240)
+const SIZE_FULL := Vector2(192, 296)
+const SIZE_COMPACT := Vector2(204, 224)
 const SIZE_MINI := Vector2(180, 60)
 
 var _mode: Mode = Mode.FULL
@@ -179,6 +179,12 @@ func _build_full() -> void:
 
 	# Stat grid
 	_vbox.add_child(_build_stat_grid())
+
+	# Spacer pushes the bottom ribbon to the bottom of the card
+	var fill := Control.new()
+	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_vbox.add_child(fill)
 
 	# Bottom: item / status ribbon
 	var bottom := _build_bottom_ribbon()

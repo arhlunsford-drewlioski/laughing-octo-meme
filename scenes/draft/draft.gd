@@ -85,8 +85,8 @@ func _build_ui() -> void:
 	_left_btn = Button.new()
 	_left_btn.theme_type_variation = &"SecondaryButton"
 	_left_btn.text = "◀"
-	_left_btn.custom_minimum_size = Vector2(56, 0)
-	_left_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_left_btn.custom_minimum_size = Vector2(48, 84)
+	_left_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_left_btn.add_theme_font_size_override("font_size", 28)
 	_left_btn.pressed.connect(_on_prev_page)
 	carousel.add_child(_left_btn)
@@ -95,14 +95,14 @@ func _build_ui() -> void:
 	_card_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_card_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_card_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_card_row.add_theme_constant_override("separation", 14)
+	_card_row.add_theme_constant_override("separation", 10)
 	carousel.add_child(_card_row)
 
 	_right_btn = Button.new()
 	_right_btn.theme_type_variation = &"SecondaryButton"
 	_right_btn.text = "▶"
-	_right_btn.custom_minimum_size = Vector2(56, 0)
-	_right_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_right_btn.custom_minimum_size = Vector2(48, 84)
+	_right_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_right_btn.add_theme_font_size_override("font_size", 28)
 	_right_btn.pressed.connect(_on_next_page)
 	carousel.add_child(_right_btn)
