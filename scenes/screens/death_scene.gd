@@ -55,9 +55,8 @@ func _ready() -> void:
 	title_label.scale = Vector2(0.5, 0.5)
 	title_label.pivot_offset = title_label.size / 2.0
 
-	# Apply theme styling
-	UITheme.style_header(title_label, 32)
-	UITheme.style_button(try_again_btn)
+	# Title styling is set in the .tscn (96px crimson). Don't override.
+	pass
 
 	# Start fully black
 	fade_overlay.color = Color(0, 0, 0, 1)
@@ -99,7 +98,7 @@ func _play_intro() -> void:
 	_show_title()
 
 func _show_title() -> void:
-	title_label.text = "YOUR GOBLINS HAVE\nBEEN ELIMINATED"
+	title_label.text = "ELIMINATED"
 
 	var title_tween := create_tween().set_parallel(true)
 	title_tween.tween_property(title_label, "scale", Vector2.ONE, 0.6) \

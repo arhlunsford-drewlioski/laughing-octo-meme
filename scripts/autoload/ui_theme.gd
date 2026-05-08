@@ -13,30 +13,38 @@ const FONT_DISPLAY_RES := preload("res://assets/fonts/MedievalSharp-Regular.ttf"
 const FONT_BODY_RES := preload("res://assets/fonts/IMFellEnglish-Regular.ttf")
 const FONT_BODY_ITALIC_RES := preload("res://assets/fonts/IMFellEnglish-Italic.ttf")
 
-# -- Core palette (illuminated-manuscript medieval) --
-const BG_DARK := Color(0.13, 0.09, 0.06)               # dark wood / aged leather
-const BG_PANEL := Color(0.20, 0.13, 0.09)              # raised wood-panel
-const BG_CARD := Color(0.27, 0.18, 0.12)               # warmer wood card
-const BG_NIGHT := Color(0.08, 0.06, 0.04)              # near-black tavern depth
+# -- Core palette (illuminated-manuscript medieval, deeper-richer pass) --
+const BG_DARK := Color(0.09, 0.06, 0.04)               # near-black tome leather
+const BG_PANEL := Color(0.16, 0.11, 0.07)              # raised wood-panel
+const BG_CARD := Color(0.22, 0.15, 0.10)               # warmer wood card
+const BG_NIGHT := Color(0.05, 0.04, 0.03)              # tavern-at-midnight
 
 const PARCHMENT := Color(0.94, 0.86, 0.68)             # warm cream paper
 const PARCHMENT_DARK := Color(0.80, 0.70, 0.50)        # parchment shadow
 const PARCHMENT_DEEP := Color(0.62, 0.51, 0.34)        # aged stain
 
-const INK := Color(0.13, 0.07, 0.04)                   # dark sepia ink (cartoon outline)
-const INK_SOFT := Color(0.25, 0.16, 0.10)
+const INK := Color(0.10, 0.05, 0.03)                   # dark sepia ink (cartoon outline)
+const INK_SOFT := Color(0.22, 0.14, 0.08)
 
-const GOLD := Color(0.86, 0.66, 0.20)                  # gold leaf
-const GOLD_LIGHT := Color(0.98, 0.83, 0.36)
-const GOLD_DEEP := Color(0.62, 0.42, 0.08)
+const GOLD := Color(0.92, 0.72, 0.18)                  # gold leaf (richer)
+const GOLD_LIGHT := Color(1.00, 0.88, 0.42)
+const GOLD_DEEP := Color(0.55, 0.36, 0.06)
 
 const WINE := Color(0.55, 0.10, 0.12)                  # heraldic wine red
-const WINE_LIGHT := Color(0.72, 0.18, 0.18)
-const WINE_DEEP := Color(0.36, 0.05, 0.07)
+const WINE_LIGHT := Color(0.78, 0.20, 0.20)
+const WINE_DEEP := Color(0.32, 0.04, 0.06)
 
 const FOREST := Color(0.18, 0.34, 0.16)                # heraldic green
 const ROYAL := Color(0.13, 0.20, 0.50)                 # heraldic blue
 const PURPLE := Color(0.32, 0.10, 0.40)
+
+# -- Semantic accents (use these in screens, not RED/GREEN/BLUE) --
+const EMERALD := Color(0.22, 0.55, 0.30)               # confirm / positive
+const EMERALD_LIGHT := Color(0.36, 0.78, 0.42)
+const CRIMSON := Color(0.78, 0.18, 0.18)               # warn / negative
+const CRIMSON_LIGHT := Color(0.92, 0.32, 0.28)
+const ROYAL_PURPLE := Color(0.28, 0.10, 0.38)          # secondary accent
+const ROYAL_PURPLE_LIGHT := Color(0.46, 0.20, 0.62)
 
 # In-match feedback colors (toasts, victory/defeat, errors). Kept vivid so
 # they pop on the dark match background - these are status signals, not palette.
@@ -209,6 +217,44 @@ static func build_default_theme() -> Theme:
 	t.set_type_variation("WoodPanel", "PanelContainer")
 	t.set_stylebox("panel", "WoodPanel", make_panel_bg(BG_DARK, GOLD_DEEP, 4))
 
+	# ---- WaxSealBadge: small circular gold-on-wine badge for OVR / cost ----
+	t.set_type_variation("WaxSealBadge", "Label")
+	t.set_color("font_color", "WaxSealBadge", GOLD_LIGHT)
+	t.set_color("font_outline_color", "WaxSealBadge", INK)
+	t.set_constant("outline_size", "WaxSealBadge", 6)
+	t.set_font("font", "WaxSealBadge", FONT_DISPLAY_RES)
+	t.set_font_size("font_size", "WaxSealBadge", 28)
+
+	# ---- StageBadge: chunky uppercase tournament-stage label ----
+	t.set_type_variation("StageBadge", "Label")
+	t.set_color("font_color", "StageBadge", GOLD_LIGHT)
+	t.set_color("font_outline_color", "StageBadge", INK)
+	t.set_constant("outline_size", "StageBadge", 5)
+	t.set_font("font", "StageBadge", FONT_DISPLAY_RES)
+	t.set_font_size("font_size", "StageBadge", 26)
+
+	# ---- StatChip: compact bordered stat label (used in goblin card 6-stat grid) ----
+	t.set_type_variation("StatChip", "Label")
+	t.set_color("font_color", "StatChip", PARCHMENT)
+	t.set_font("font", "StatChip", FONT_BODY_RES)
+	t.set_font_size("font_size", "StatChip", 16)
+
+	# ---- ParchmentTitle: title-sized label for parchment backgrounds ----
+	t.set_type_variation("ParchmentTitle", "Label")
+	t.set_color("font_color", "ParchmentTitle", WINE)
+	t.set_color("font_outline_color", "ParchmentTitle", GOLD)
+	t.set_constant("outline_size", "ParchmentTitle", 4)
+	t.set_font("font", "ParchmentTitle", FONT_DISPLAY_RES)
+	t.set_font_size("font_size", "ParchmentTitle", 56)
+
+	# ---- HugeNumeral: oversized record/score numerals ----
+	t.set_type_variation("HugeNumeral", "Label")
+	t.set_color("font_color", "HugeNumeral", GOLD_LIGHT)
+	t.set_color("font_outline_color", "HugeNumeral", INK)
+	t.set_constant("outline_size", "HugeNumeral", 8)
+	t.set_font("font", "HugeNumeral", FONT_DISPLAY_RES)
+	t.set_font_size("font_size", "HugeNumeral", 120)
+
 	# ---- ScrollContainer chrome ----
 	t.set_stylebox("scroll", "VScrollBar", _make_scroll_track())
 	t.set_stylebox("grabber", "VScrollBar", _make_scroll_grabber(false))
@@ -349,3 +395,103 @@ static func style_dim(label: Label, size: int = FONT_SMALL) -> void:
 	label.theme_type_variation = &"DimLabel"
 	if size != FONT_SMALL:
 		label.add_theme_font_size_override("font_size", size)
+
+
+# ============================================================================
+#  Shared building blocks for the Clash-Royale-ified screens
+# ============================================================================
+
+## Round wax-seal-style stylebox used for OVR/cost badges. Wine bg, gold ring.
+static func make_wax_seal_style(seal_color: Color = WINE, ring: Color = GOLD) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = seal_color
+	s.set_corner_radius_all(48)  # plenty round; node will be clipped square
+	s.border_color = ring
+	s.border_width_left = 3
+	s.border_width_right = 3
+	s.border_width_top = 3
+	s.border_width_bottom = 3
+	s.content_margin_left = 6
+	s.content_margin_right = 6
+	s.content_margin_top = 2
+	s.content_margin_bottom = 2
+	s.shadow_color = Color(0, 0, 0, 0.45)
+	s.shadow_size = 0
+	s.shadow_offset = Vector2(0, 3)
+	s.anti_aliasing = true
+	return s
+
+
+## Aged-parchment card frame: cream paper, gold-leaf border, soft drop shadow.
+static func make_parchment_card_style(border: Color = GOLD, border_width: int = 4) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = PARCHMENT
+	s.set_corner_radius_all(8)
+	s.border_color = border
+	s.border_width_left = border_width
+	s.border_width_right = border_width
+	s.border_width_top = border_width
+	s.border_width_bottom = border_width
+	s.content_margin_left = 12
+	s.content_margin_right = 12
+	s.content_margin_top = 12
+	s.content_margin_bottom = 12
+	s.shadow_color = Color(0, 0, 0, 0.55)
+	s.shadow_size = 0
+	s.shadow_offset = Vector2(0, 6)
+	s.anti_aliasing = true
+	return s
+
+
+## Stat chip used inside the goblin card 6-stat grid. Wood bg, gold ring.
+static func make_stat_chip_style(highlighted: bool = false) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = INK if highlighted else BG_CARD
+	s.set_corner_radius_all(4)
+	s.border_color = GOLD if highlighted else PARCHMENT_DEEP
+	s.border_width_left = 2
+	s.border_width_right = 2
+	s.border_width_top = 2
+	s.border_width_bottom = 2
+	s.content_margin_left = 6
+	s.content_margin_right = 6
+	s.content_margin_top = 2
+	s.content_margin_bottom = 2
+	return s
+
+
+## Map a value 1..10 to a heat color (red→cream→gold→emerald) so stats read at a glance.
+static func stat_color(value: int) -> Color:
+	if value >= 8:
+		return EMERALD_LIGHT
+	if value >= 6:
+		return GOLD_LIGHT
+	if value >= 4:
+		return PARCHMENT
+	return CRIMSON_LIGHT
+
+
+## Color a Label by stat value. Convenience for goblin / spell cards.
+static func tint_stat_label(label: Label, value: int) -> void:
+	label.add_theme_color_override("font_color", stat_color(value))
+
+
+## Page-level dark backdrop (used as background of every screen).
+static func make_page_backdrop_style() -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = BG_NIGHT
+	return s
+
+
+## Compute a Clash-Royale-style "OVR" rating from a goblin's six hex stats.
+## Average of top 3 stats * 10, clamped 10..99. Stays consistent across cards.
+static func compute_overall(g) -> int:
+	if g == null:
+		return 50
+	var stats: Array[int] = [
+		int(g.get("shooting")), int(g.get("speed")), int(g.get("defense")),
+		int(g.get("strength")), int(g.get("health")), int(g.get("chaos"))
+	]
+	stats.sort()
+	var top3: float = (stats[-1] + stats[-2] + stats[-3]) / 3.0
+	return clampi(roundi(top3 * 10), 10, 99)

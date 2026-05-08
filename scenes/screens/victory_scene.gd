@@ -29,9 +29,8 @@ func _ready() -> void:
 	title_label.pivot_offset = title_label.size / 2.0
 	stats_label.modulate.a = 0.0
 
-	# Apply theme styling
-	UITheme.style_header(title_label, 32)
-	UITheme.style_button(new_run_btn)
+	# Title styling is set in the .tscn. Don't override.
+	pass
 
 	fade_overlay.color = Color(0, 0, 0, 1)
 	fade_overlay.visible = true
@@ -76,7 +75,7 @@ func _start_title_pulse() -> void:
 		.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 
 func _display_victory() -> void:
-	title_label.text = "WORLD CUP CHAMPIONS!"
+	title_label.text = "TRIUMPHANT"
 
 	var gold_hex := UITheme.GOLD_LIGHT.to_html(false)
 	var cream_hex := UITheme.CREAM.to_html(false)

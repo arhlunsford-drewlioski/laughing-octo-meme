@@ -1,216 +1,197 @@
 extends Control
-## Draft screen with carousel navigation and FIFA-style goblin cards.
-## Pick 10 goblins from a pool of 20 to form your squad.
+## Draft screen: pick 10 goblins from a pool of 20.
+## CR-style carousel of 5 illuminated goblin cards per page.
 
 const TEAM_SIZE: int = 10
 const CARDS_PER_PAGE: int = 5
 
-var full_roster: Array[GoblinData] = []
-var selected: Array[GoblinData] = []
+var _full_roster: Array[GoblinData] = []
+var _selected: Array[GoblinData] = []
 var _page: int = 0
 
-@onready var card_row: HBoxContainer = %CardRow
-@onready var left_btn: Button = %LeftBtn
-@onready var right_btn: Button = %RightBtn
-@onready var page_label: Label = %PageLabel
-@onready var start_btn: Button = %StartMatchBtn
-@onready var count_label: Label = %CountLabel
-@onready var title_label: Label = %TitleLabel
-@onready var faction_label: Label = %FactionLabel
+var _shell: PageShell
+var _count_badge: Label
+var _hint: Label
+var _card_row: HBoxContainer
+var _left_btn: Button
+var _right_btn: Button
+var _page_dots: HBoxContainer
+var _start_btn: BigCTA
+
 
 func _ready() -> void:
-	full_roster = GoblinGenerator.generate_draft_pool(20)
-	start_btn.pressed.connect(_on_start_match)
-	left_btn.pressed.connect(_on_prev_page)
-	right_btn.pressed.connect(_on_next_page)
-	UITheme.style_button(start_btn)
-	UITheme.style_button(left_btn, false)
-	UITheme.style_button(right_btn, false)
-	start_btn.disabled = true
+	_full_roster = GoblinGenerator.generate_draft_pool(20)
+	_build_ui()
 	_show_page()
-	_update_count()
+	_update_state()
+
+
+func _build_ui() -> void:
+	_shell = PageShell.new()
+	_shell.show_top_rail = true
+	add_child(_shell)
+	_shell.top_rail.set_stage("DRAFT")
+	_shell.top_rail.set_book(null)
+	_shell.top_rail.set_gold(0)
+	_shell.top_rail.set_record(0, 0, 0)
+
+	# ── Header ────────────────────────────────────────────────────────
+	var header := VBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	_shell.center_content.add_child(header)
+
+	var title := Label.new()
+	title.theme_type_variation = &"HeaderLabel"
+	title.text = "ASSEMBLE YOUR ROSTER"
+	title.add_theme_font_size_override("font_size", 36)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header.add_child(title)
+
+	# Big chunky selection counter (CR-style)
+	var counter_row := HBoxContainer.new()
+	counter_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	counter_row.add_theme_constant_override("separation", 8)
+	header.add_child(counter_row)
+
+	var pc := PanelContainer.new()
+	var ps := UITheme.make_panel_bg(UITheme.WINE_DEEP, UITheme.GOLD)
+	ps.content_margin_left = 22
+	ps.content_margin_right = 22
+	ps.content_margin_top = 6
+	ps.content_margin_bottom = 6
+	pc.add_theme_stylebox_override("panel", ps)
+	counter_row.add_child(pc)
+	_count_badge = Label.new()
+	_count_badge.theme_type_variation = &"WaxSealBadge"
+	_count_badge.add_theme_font_size_override("font_size", 30)
+	_count_badge.text = "0 / %d" % TEAM_SIZE
+	pc.add_child(_count_badge)
+
+	_hint = Label.new()
+	_hint.theme_type_variation = &"DimLabel"
+	_hint.add_theme_color_override("font_color", UITheme.PARCHMENT_DARK)
+	_hint.add_theme_font_size_override("font_size", 14)
+	_hint.text = "Pick ten. Field six per match."
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header.add_child(_hint)
+
+	# ── Carousel ──────────────────────────────────────────────────────
+	var carousel := HBoxContainer.new()
+	carousel.alignment = BoxContainer.ALIGNMENT_CENTER
+	carousel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	carousel.add_theme_constant_override("separation", 12)
+	_shell.center_content.add_child(carousel)
+
+	_left_btn = Button.new()
+	_left_btn.theme_type_variation = &"SecondaryButton"
+	_left_btn.text = "◀"
+	_left_btn.custom_minimum_size = Vector2(56, 0)
+	_left_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_left_btn.add_theme_font_size_override("font_size", 28)
+	_left_btn.pressed.connect(_on_prev_page)
+	carousel.add_child(_left_btn)
+
+	_card_row = HBoxContainer.new()
+	_card_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_card_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_card_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_card_row.add_theme_constant_override("separation", 14)
+	carousel.add_child(_card_row)
+
+	_right_btn = Button.new()
+	_right_btn.theme_type_variation = &"SecondaryButton"
+	_right_btn.text = "▶"
+	_right_btn.custom_minimum_size = Vector2(56, 0)
+	_right_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_right_btn.add_theme_font_size_override("font_size", 28)
+	_right_btn.pressed.connect(_on_next_page)
+	carousel.add_child(_right_btn)
+
+	# Page dots
+	_page_dots = HBoxContainer.new()
+	_page_dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	_page_dots.add_theme_constant_override("separation", 8)
+	_shell.center_content.add_child(_page_dots)
+
+	# ── Action bar ────────────────────────────────────────────────────
+	_shell.add_secondary_button("BACK", _on_back)
+	_start_btn = _shell.add_primary_cta("LOCK IN ROSTER", _on_start_match)
+	_start_btn.disabled = true
+
 
 func _total_pages() -> int:
-	return ceili(float(full_roster.size()) / CARDS_PER_PAGE)
+	return ceili(float(_full_roster.size()) / CARDS_PER_PAGE)
+
 
 func _on_prev_page() -> void:
 	_page = maxi(_page - 1, 0)
 	_show_page()
 
+
 func _on_next_page() -> void:
 	_page = mini(_page + 1, _total_pages() - 1)
 	_show_page()
 
+
 func _show_page() -> void:
-	for child in card_row.get_children():
-		child.queue_free()
+	for c in _card_row.get_children():
+		c.queue_free()
 
 	var start_idx: int = _page * CARDS_PER_PAGE
-	var end_idx: int = mini(start_idx + CARDS_PER_PAGE, full_roster.size())
+	var end_idx: int = mini(start_idx + CARDS_PER_PAGE, _full_roster.size())
 
 	for i in range(start_idx, end_idx):
-		var goblin: GoblinData = full_roster[i]
-		var card := _build_fifa_card(goblin)
-		card_row.add_child(card)
+		var goblin: GoblinData = _full_roster[i]
+		var card := GoblinCard.new()
+		_card_row.add_child(card)
+		# Set goblin AFTER it's in tree so _ready runs first
+		card.set_goblin(goblin, GoblinCard.Mode.FULL)
+		card.set_selected(_selected.has(goblin))
+		card.toggled.connect(_on_card_toggled.bind(goblin, card))
 
-	left_btn.disabled = _page <= 0
-	right_btn.disabled = _page >= _total_pages() - 1
-	page_label.text = "%d / %d" % [_page + 1, _total_pages()]
+	_left_btn.disabled = _page <= 0
+	_right_btn.disabled = _page >= _total_pages() - 1
+	_rebuild_page_dots()
 
-func _build_fifa_card(goblin: GoblinData) -> PanelContainer:
-	var is_selected: bool = selected.has(goblin)
 
-	# Card container
-	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(210, 0)
-	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN  # don't stretch to fill
+func _rebuild_page_dots() -> void:
+	for c in _page_dots.get_children():
+		c.queue_free()
+	for i in range(_total_pages()):
+		var dot := ColorRect.new()
+		dot.custom_minimum_size = Vector2(12, 12)
+		dot.color = UITheme.GOLD if i == _page else UITheme.GOLD_DEEP
+		_page_dots.add_child(dot)
 
-	var card_bg: Color = Color(0.22, 0.18, 0.12) if is_selected else Color(0.12, 0.11, 0.16)
-	var card_border: Color = UITheme.GREEN if is_selected else UITheme.GOLD
-	var style := StyleBoxFlat.new()
-	style.bg_color = card_bg
-	style.border_color = card_border
-	style.border_width_left = 3 if is_selected else 2
-	style.border_width_right = 3 if is_selected else 2
-	style.border_width_top = 3 if is_selected else 2
-	style.border_width_bottom = 3 if is_selected else 2
-	style.corner_radius_top_left = 10
-	style.corner_radius_top_right = 10
-	style.corner_radius_bottom_left = 10
-	style.corner_radius_bottom_right = 10
-	style.content_margin_left = 10
-	style.content_margin_right = 10
-	style.content_margin_top = 10
-	style.content_margin_bottom = 10
-	card.add_theme_stylebox_override("panel", style)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	card.add_child(vbox)
-
-	# Name (top of card)
-	var name_label := Label.new()
-	name_label.text = goblin.goblin_name
-	name_label.add_theme_font_size_override("font_size", 20)
-	name_label.add_theme_color_override("font_color", UITheme.CREAM)
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	vbox.add_child(name_label)
-
-	# Position + OVR row
-	var all_stats: Array[int] = [goblin.shooting, goblin.speed, goblin.defense,
-		goblin.strength, goblin.health, goblin.chaos]
-	all_stats.sort()
-	var top3: float = (all_stats[-1] + all_stats[-2] + all_stats[-3]) / 3.0
-	var ovr: int = clampi(roundi(top3 * 10), 10, 99)
-
-	var pos_name: String = PositionDatabase.get_display_name(goblin.position)
-	var pos_ovr_label := Label.new()
-	pos_ovr_label.text = "%s  %d" % [pos_name.to_upper(), ovr]
-	pos_ovr_label.add_theme_font_size_override("font_size", 18)
-	pos_ovr_label.add_theme_color_override("font_color", UITheme.GOLD)
-	pos_ovr_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(pos_ovr_label)
-
-	# Divider
-	var divider := HSeparator.new()
-	divider.add_theme_color_override("separator", Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.3))
-	vbox.add_child(divider)
-
-	# Stats grid (2 columns, FIFA style)
-	var stats_grid := GridContainer.new()
-	stats_grid.columns = 2
-	stats_grid.add_theme_constant_override("h_separation", 6)
-	stats_grid.add_theme_constant_override("v_separation", 4)
-	vbox.add_child(stats_grid)
-
-	var stat_entries := [
-		["SHO", goblin.shooting], ["SPD", goblin.speed],
-		["DEF", goblin.defense], ["STR", goblin.strength],
-		["HP", goblin.health], ["CHA", goblin.chaos]
-	]
-	var primary_stats := PositionDatabase.get_primary_stats(goblin.position)
-
-	for entry in stat_entries:
-		var stat_name_raw: String = {"SHO": "shooting", "SPD": "speed", "DEF": "defense",
-			"STR": "strength", "HP": "health", "CHA": "chaos"}.get(entry[0], "")
-		var is_primary: bool = stat_name_raw in primary_stats
-		var val: int = entry[1]
-
-		var stat_row := HBoxContainer.new()
-		stat_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		stat_row.add_theme_constant_override("separation", 4)
-		stats_grid.add_child(stat_row)
-
-		var val_label := Label.new()
-		val_label.text = str(val)
-		val_label.add_theme_font_size_override("font_size", 18)
-		val_label.custom_minimum_size = Vector2(24, 0)
-		var val_color: Color
-		if val >= 8:
-			val_color = UITheme.GREEN
-		elif val >= 6:
-			val_color = UITheme.GOLD_LIGHT if is_primary else UITheme.GOLD
-		elif val >= 4:
-			val_color = UITheme.CREAM
-		else:
-			val_color = Color(0.7, 0.4, 0.4)
-		val_label.add_theme_color_override("font_color", val_color)
-		stat_row.add_child(val_label)
-
-		var name_l := Label.new()
-		name_l.text = entry[0]
-		name_l.add_theme_font_size_override("font_size", 14)
-		name_l.add_theme_color_override("font_color", UITheme.CREAM_DIM if not is_primary else UITheme.GOLD)
-		stat_row.add_child(name_l)
-
-	# Personality (small flavor text)
-	var pers_label := Label.new()
-	pers_label.text = goblin.personality
-	pers_label.add_theme_font_size_override("font_size", 10)
-	pers_label.add_theme_color_override("font_color", UITheme.CREAM_DIM)
-	pers_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	pers_label.custom_minimum_size = Vector2(0, 28)
-	vbox.add_child(pers_label)
-
-	# Select/Deselect button
-	var btn := Button.new()
-	btn.text = "SELECTED" if is_selected else "DRAFT"
-	btn.custom_minimum_size = Vector2(0, 32)
-	btn.add_theme_font_size_override("font_size", 14)
-	if is_selected:
-		var btn_style := StyleBoxFlat.new()
-		btn_style.bg_color = Color(0.15, 0.45, 0.15)
-		btn_style.corner_radius_top_left = 6
-		btn_style.corner_radius_top_right = 6
-		btn_style.corner_radius_bottom_left = 6
-		btn_style.corner_radius_bottom_right = 6
-		btn.add_theme_stylebox_override("normal", btn_style)
-		btn.add_theme_color_override("font_color", Color.WHITE)
+func _on_card_toggled(toggled: bool, goblin: GoblinData, card: GoblinCard) -> void:
+	if toggled:
+		if _selected.size() >= TEAM_SIZE:
+			# Roster full — refuse the toggle
+			card.set_selected(false)
+			return
+		if not _selected.has(goblin):
+			_selected.append(goblin)
 	else:
-		UITheme.style_button(btn, false)
-	btn.pressed.connect(_on_card_pressed.bind(goblin))
-	vbox.add_child(btn)
+		_selected.erase(goblin)
+	_update_state()
 
-	return card
 
-func _on_card_pressed(goblin: GoblinData) -> void:
-	if selected.has(goblin):
-		selected.erase(goblin)
-	elif selected.size() < TEAM_SIZE:
-		selected.append(goblin)
-	_show_page()  # Rebuild to update visual state
-	_update_count()
+func _update_state() -> void:
+	_count_badge.text = "%d / %d" % [_selected.size(), TEAM_SIZE]
+	if _selected.size() == TEAM_SIZE:
+		_hint.text = "Roster ready. Bind your spellbook next."
+		_hint.add_theme_color_override("font_color", UITheme.EMERALD_LIGHT)
+	else:
+		_hint.text = "Pick %d more goblin%s." % [TEAM_SIZE - _selected.size(), "" if (TEAM_SIZE - _selected.size()) == 1 else "s"]
+		_hint.add_theme_color_override("font_color", UITheme.PARCHMENT_DARK)
+	_start_btn.disabled = _selected.size() != TEAM_SIZE
 
-func _update_count() -> void:
-	count_label.text = "%d / %d selected" % [selected.size(), TEAM_SIZE]
-	start_btn.disabled = selected.size() != TEAM_SIZE
-
-	# Faction system removed - keep the label hidden/empty.
-	faction_label.text = ""
-	faction_label.visible = false
 
 func _on_start_match() -> void:
-	GameManager.selected_roster = selected.duplicate()
-	# Tournament starts after the player picks their spellbook.
+	GameManager.selected_roster = _selected.duplicate()
 	get_tree().change_scene_to_file("res://scenes/screens/book_select.tscn")
+
+
+func _on_back() -> void:
+	get_tree().change_scene_to_file("res://scenes/screens/main_menu.tscn")
