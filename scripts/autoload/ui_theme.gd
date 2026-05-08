@@ -9,9 +9,14 @@ extends Node
 ## Body font is IM FELL English (a 17th-century printer's type, slightly aged).
 
 # -- Fonts --
-const FONT_DISPLAY_RES := preload("res://assets/fonts/MedievalSharp-Regular.ttf")
-const FONT_BODY_RES := preload("res://assets/fonts/IMFellEnglish-Regular.ttf")
-const FONT_BODY_ITALIC_RES := preload("res://assets/fonts/IMFellEnglish-Italic.ttf")
+# Display: Cinzel Black — chunky heraldic Roman caps. Reads at a glance, the
+# CR-style "thick and confident" feel without abandoning medieval flavor.
+# Body: Nunito Regular/Bold — round friendly sans, way more readable on screen
+# than IM FELL English (which renders muddy at UI sizes).
+const FONT_DISPLAY_RES := preload("res://assets/fonts/Cinzel-Black.ttf")
+const FONT_BODY_RES := preload("res://assets/fonts/Nunito-Regular.ttf")
+const FONT_BODY_BOLD_RES := preload("res://assets/fonts/Nunito-Bold.ttf")
+const FONT_BODY_ITALIC_RES := preload("res://assets/fonts/Nunito-Italic.ttf")
 
 # -- Core palette (illuminated-manuscript medieval, deeper-richer pass) --
 const BG_DARK := Color(0.09, 0.06, 0.04)               # near-black tome leather
