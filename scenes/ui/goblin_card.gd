@@ -152,11 +152,11 @@ func _build_full() -> void:
 	_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_frame.add_child(_vbox)
 
-	# Portrait centered at top
+	# Portrait centered at top — Kenney 3D orc rendered via SubViewport
 	var portrait_row := HBoxContainer.new()
 	portrait_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_vbox.add_child(portrait_row)
-	var portrait := GoblinPortrait.new()
+	var portrait := GoblinPortrait3D.new()
 	portrait.portrait_size = PORTRAIT_FULL_PX
 	portrait_row.add_child(portrait)
 	portrait.set_goblin(_goblin)
@@ -222,11 +222,11 @@ func _build_compact() -> void:
 	_vbox.add_theme_constant_override("separation", 4)
 	_frame.add_child(_vbox)
 
-	# Portrait centered at top
+	# Portrait centered at top — Kenney 3D orc rendered via SubViewport
 	var portrait_row := HBoxContainer.new()
 	portrait_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_vbox.add_child(portrait_row)
-	var portrait := GoblinPortrait.new()
+	var portrait := GoblinPortrait3D.new()
 	portrait.portrait_size = PORTRAIT_COMPACT_PX
 	portrait_row.add_child(portrait)
 	portrait.set_goblin(_goblin)
