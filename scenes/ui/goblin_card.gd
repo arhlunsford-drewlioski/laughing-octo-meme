@@ -13,17 +13,11 @@ extends Button
 
 enum Mode { COMPACT, FULL, MINI }
 
-const ROLE_ICONS := {
-	"keeper": "🧤",
-	"defender": "🛡",
-	"midfielder": "⚜",
-	"attacker": "⚔",
-	"chaos": "💀",
-}
-
-const SIZE_FULL := Vector2(192, 296)
-const SIZE_COMPACT := Vector2(176, 196)
+const SIZE_FULL := Vector2(192, 320)
+const SIZE_COMPACT := Vector2(176, 224)
 const SIZE_MINI := Vector2(180, 60)
+const PORTRAIT_FULL_PX := 88.0
+const PORTRAIT_COMPACT_PX := 56.0
 
 var _mode: Mode = Mode.FULL
 var _goblin = null
@@ -136,23 +130,24 @@ func _build_full() -> void:
 	_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_frame.add_child(_vbox)
 
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 8)
-	_vbox.add_child(name_row)
-
-	var role_icon := Label.new()
-	role_icon.text = ROLE_ICONS.get(_goblin.position, "⚜")
-	role_icon.add_theme_font_size_override("font_size", 22)
-	name_row.add_child(role_icon)
+	# Portrait centered at top
+	var portrait_row := HBoxContainer.new()
+	portrait_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_vbox.add_child(portrait_row)
+	var portrait := GoblinPortrait.new()
+	portrait.portrait_size = PORTRAIT_FULL_PX
+	portrait_row.add_child(portrait)
+	portrait.set_goblin(_goblin)
 
 	var name_label := Label.new()
 	name_label.theme_type_variation = &"ParchmentLabel"
 	name_label.text = str(_goblin.goblin_name)
 	name_label.add_theme_color_override("font_color", UITheme.WINE_DEEP)
 	name_label.add_theme_font_size_override("font_size", 18)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_row.add_child(name_label)
+	_vbox.add_child(name_label)
 
 	# Position + level row
 	var pos_row := HBoxContainer.new()
@@ -194,6 +189,8 @@ func _build_full() -> void:
 
 	# Wax-seal OVR badge (top-right, anchored)
 	add_child(_build_wax_seal(UITheme.compute_overall(_goblin), UITheme.WINE))
+	if _goblin.has_method("has_pending_level_up") and _goblin.has_pending_level_up():
+		add_child(_build_levelup_star())
 
 
 func _build_compact() -> void:
@@ -201,29 +198,31 @@ func _build_compact() -> void:
 	_vbox.add_theme_constant_override("separation", 4)
 	_frame.add_child(_vbox)
 
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 6)
-	_vbox.add_child(name_row)
-
-	var role_icon := Label.new()
-	role_icon.text = ROLE_ICONS.get(_goblin.position, "⚜")
-	role_icon.add_theme_font_size_override("font_size", 18)
-	name_row.add_child(role_icon)
+	# Portrait centered at top
+	var portrait_row := HBoxContainer.new()
+	portrait_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_vbox.add_child(portrait_row)
+	var portrait := GoblinPortrait.new()
+	portrait.portrait_size = PORTRAIT_COMPACT_PX
+	portrait_row.add_child(portrait)
+	portrait.set_goblin(_goblin)
 
 	var name_label := Label.new()
 	name_label.text = str(_goblin.goblin_name)
 	name_label.add_theme_color_override("font_color", UITheme.WINE_DEEP)
-	name_label.add_theme_font_size_override("font_size", 15)
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_row.add_child(name_label)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_vbox.add_child(name_label)
 
 	var pos_label := Label.new()
 	pos_label.text = PositionDatabase.get_display_name(_goblin.position).to_upper()
 	pos_label.add_theme_color_override("font_color", UITheme.GOLD_DEEP)
-	pos_label.add_theme_font_size_override("font_size", 11)
+	pos_label.add_theme_font_size_override("font_size", 10)
+	pos_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if int(_goblin.level) > 1:
-		pos_label.text += "  ·  Lv %d" % int(_goblin.level)
+		pos_label.text += "  ·  L%d" % int(_goblin.level)
 	_vbox.add_child(pos_label)
 
 	_vbox.add_child(_make_thin_divider())
@@ -234,6 +233,8 @@ func _build_compact() -> void:
 		_vbox.add_child(bottom)
 
 	add_child(_build_wax_seal(UITheme.compute_overall(_goblin), UITheme.WINE))
+	if _goblin.has_method("has_pending_level_up") and _goblin.has_pending_level_up():
+		add_child(_build_levelup_star())
 
 
 func _build_mini() -> void:
@@ -241,10 +242,10 @@ func _build_mini() -> void:
 	hbox.add_theme_constant_override("separation", 8)
 	_frame.add_child(hbox)
 
-	var role_icon := Label.new()
-	role_icon.text = ROLE_ICONS.get(_goblin.position, "⚜")
-	role_icon.add_theme_font_size_override("font_size", 22)
-	hbox.add_child(role_icon)
+	var portrait := GoblinPortrait.new()
+	portrait.portrait_size = 44.0
+	hbox.add_child(portrait)
+	portrait.set_goblin(_goblin)
 
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -393,6 +394,26 @@ func _build_bottom_ribbon() -> Control:
 	if not any:
 		return null
 	return bottom
+
+
+func _build_levelup_star() -> Control:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UITheme.make_wax_seal_style(UITheme.EMERALD, UITheme.GOLD_LIGHT))
+	pc.custom_minimum_size = Vector2(40, 40)
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pc.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	pc.position.x = -8
+	pc.position.y = -8
+
+	var lbl := Label.new()
+	lbl.text = "★"
+	lbl.theme_type_variation = &"WaxSealBadge"
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", UITheme.GOLD_LIGHT)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pc.add_child(lbl)
+	return pc
 
 
 func _build_wax_seal(value: int, seal_color: Color) -> Control:
