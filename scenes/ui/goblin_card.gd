@@ -30,6 +30,8 @@ var _vbox: VBoxContainer = null
 var _shine: ColorRect = null
 var _bounce_tween: Tween = null
 var _shine_tween: Tween = null
+var _wax_seal_panel: PanelContainer = null   # for color-flip on selection
+var _picked_ribbon: PanelContainer = null    # only visible when selected
 
 
 func _init() -> void:
@@ -86,6 +88,8 @@ func _rebuild() -> void:
 	# Tear down old children (not the button's text label — there isn't one visible)
 	for child in get_children():
 		child.queue_free()
+	_wax_seal_panel = null
+	_picked_ribbon = null
 	if _goblin == null:
 		return
 
@@ -111,16 +115,34 @@ func _rebuild() -> void:
 	_shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_shine)
 
+	# Final pass to make sure border/seal/ribbon all reflect current selection
+	_apply_frame_style()
+
 
 func _apply_frame_style() -> void:
 	if _frame == null:
 		return
-	var border: Color = UITheme.GOLD_LIGHT if _selected else UITheme.GOLD
+	# Selected = emerald border (semantic "locked in"), thicker, slightly
+	# brighter parchment fill. Unselected = gold leaf at normal weight.
+	var border: Color = UITheme.EMERALD_LIGHT if _selected else UITheme.GOLD
 	var bw := 5 if _selected else 3
 	var s: StyleBoxFlat = UITheme.make_parchment_card_style(border, bw)
 	if _selected:
-		s.bg_color = Color(0.98, 0.92, 0.78)
+		s.bg_color = Color(0.98, 0.94, 0.82)
+		s.shadow_color = Color(0.20, 0.55, 0.30, 0.55)  # emerald-tinted shadow
+		s.shadow_size = 4
 	_frame.add_theme_stylebox_override("panel", s)
+
+	# Wax-seal also flips wine → emerald when selected. Three signals
+	# (border, bg, seal) all swing the same direction so you can never
+	# mistake a picked card for an unpicked one across the row.
+	if _wax_seal_panel:
+		var seal_color: Color = UITheme.EMERALD if _selected else UITheme.WINE
+		_wax_seal_panel.add_theme_stylebox_override(
+			"panel", UITheme.make_wax_seal_style(seal_color, UITheme.GOLD)
+		)
+	if _picked_ribbon:
+		_picked_ribbon.visible = _selected
 
 
 func _build_full() -> void:
@@ -189,6 +211,8 @@ func _build_full() -> void:
 
 	# Wax-seal OVR badge (top-right, anchored)
 	add_child(_build_wax_seal(UITheme.compute_overall(_goblin), UITheme.WINE))
+	# "PICKED" ribbon (only visible when _selected; hidden by default)
+	add_child(_build_picked_ribbon())
 	if _goblin.has_method("has_pending_level_up") and _goblin.has_pending_level_up():
 		add_child(_build_levelup_star())
 
@@ -233,6 +257,7 @@ func _build_compact() -> void:
 		_vbox.add_child(bottom)
 
 	add_child(_build_wax_seal(UITheme.compute_overall(_goblin), UITheme.WINE))
+	add_child(_build_picked_ribbon())
 	if _goblin.has_method("has_pending_level_up") and _goblin.has_pending_level_up():
 		add_child(_build_levelup_star())
 
@@ -434,6 +459,53 @@ func _build_wax_seal(value: int, seal_color: Color) -> Control:
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	pc.add_child(lbl)
 
+	# Stash so _apply_frame_style can flip its color on selection
+	_wax_seal_panel = pc
+	return pc
+
+
+func _build_picked_ribbon() -> Control:
+	## Banner pill that hangs across the bottom-center of the card when picked.
+	## Built once during _rebuild; visibility toggled via _apply_frame_style.
+	var pc := PanelContainer.new()
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pc.visible = _selected
+
+	var s := StyleBoxFlat.new()
+	s.bg_color = UITheme.EMERALD
+	s.border_color = UITheme.GOLD_LIGHT
+	s.border_width_left = 2
+	s.border_width_right = 2
+	s.border_width_top = 2
+	s.border_width_bottom = 2
+	s.set_corner_radius_all(6)
+	s.content_margin_left = 12
+	s.content_margin_right = 12
+	s.content_margin_top = 2
+	s.content_margin_bottom = 2
+	s.shadow_color = Color(0, 0, 0, 0.5)
+	s.shadow_size = 0
+	s.shadow_offset = Vector2(0, 3)
+	pc.add_theme_stylebox_override("panel", s)
+
+	# Anchor bottom-center, hanging slightly below the card edge.
+	# PRESET_CENTER_BOTTOM sets grow_horizontal = BOTH so the panel
+	# auto-centers around its anchor point.
+	pc.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	pc.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pc.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	pc.position.y = -10
+
+	var lbl := Label.new()
+	lbl.text = "✓ PICKED"
+	lbl.add_theme_color_override("font_color", UITheme.PARCHMENT)
+	lbl.add_theme_color_override("font_outline_color", UITheme.INK)
+	lbl.add_theme_constant_override("outline_size", 3)
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pc.add_child(lbl)
+
+	_picked_ribbon = pc
 	return pc
 
 
