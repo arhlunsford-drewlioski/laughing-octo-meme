@@ -65,12 +65,14 @@ func _build_3d_scene() -> void:
 	_viewport.msaa_3d = Viewport.MSAA_4X
 	add_child(_viewport)
 
-	# Camera framed on the model's head/upper body
+	# Camera framed on the model's head/upper body. Use look_at so we
+	# don't have to compute pitch manually.
 	_camera = Camera3D.new()
-	_camera.position = Vector3(0, 0.65, 1.35)
-	_camera.rotation = Vector3(deg_to_rad(-12), 0, 0)
-	_camera.fov = 32
+	_camera.position = Vector3(0, 0.55, 0.85)
+	_camera.fov = 45
 	_viewport.add_child(_camera)
+	# look_at must run after add_child (camera needs a valid global xform)
+	_camera.look_at(Vector3(0, 0.40, 0))
 
 	# Three-point-ish lighting for chibi readability
 	var key := DirectionalLight3D.new()
@@ -91,7 +93,7 @@ func _build_3d_scene() -> void:
 	# 2D output: TextureRect anchored full-rect, inset slightly so the ring shows
 	_texture_rect = TextureRect.new()
 	_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var inset: float = portrait_size * 0.08
+	var inset: float = portrait_size * 0.04
 	_texture_rect.offset_left = inset
 	_texture_rect.offset_right = -inset
 	_texture_rect.offset_top = inset
@@ -113,10 +115,15 @@ func _apply_goblin_variation() -> void:
 	for child in _model_root.get_children():
 		child.queue_free()
 
-	var instance := ORC_GLB.instantiate()
+	var instance := ORC_GLB.instantiate() as Node3D
+	if instance == null:
+		push_warning("GoblinPortrait3D: orc GLB did not instantiate as Node3D")
+		return
 	_model_root.add_child(instance)
-	# Drop the orc's feet to floor so the head frames correctly
-	instance.position.y = -0.55
+	# Don't translate — let the model sit at origin. The camera is aimed
+	# at y=0.40 which is roughly head/chest height for the chibi orc.
+	# (If this is wrong on a particular import, retune the camera not
+	# the model so all variants stay aligned.)
 
 	# Deterministic variation from name hash
 	var seed_v: int = abs(_goblin.goblin_name.hash())
